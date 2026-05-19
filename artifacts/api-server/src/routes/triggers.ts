@@ -1,17 +1,25 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { triggersTable, activityTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
+import {
+  parseId, nameSchema, hexColorSchema, effectSchema,
+  platformSchema, eventTypeSchema,
+} from "../lib/security";
+import { writeLimiter } from "../middlewares/rate-limit";
 
 const router = Router();
 
 function parseTrigger(t: typeof triggersTable.$inferSelect) {
-  return {
-    ...t,
-    deviceIds: JSON.parse(t.deviceIds) as number[],
-    createdAt: t.createdAt.toISOString(),
-  };
+  let deviceIds: number[] = [];
+  try {
+    deviceIds = JSON.parse(t.deviceIds) as number[];
+    if (!Array.isArray(deviceIds)) deviceIds = [];
+  } catch {
+    deviceIds = [];
+  }
+  return { ...t, deviceIds, createdAt: t.createdAt.toISOString() };
 }
 
 router.get("/triggers", async (req, res) => {
@@ -24,21 +32,21 @@ router.get("/triggers", async (req, res) => {
   }
 });
 
-router.post("/triggers", async (req, res) => {
+router.post("/triggers", writeLimiter, async (req, res) => {
   try {
     const body = z.object({
-      name: z.string().min(1),
-      eventType: z.string().min(1),
-      platform: z.string().optional(),
+      name: nameSchema,
+      eventType: eventTypeSchema,
+      platform: platformSchema.optional(),
       enabled: z.boolean().optional(),
-      color: z.string(),
+      color: hexColorSchema,
       brightness: z.number().int().min(0).max(100),
-      durationMs: z.number().int().min(100),
-      effect: z.string(),
+      durationMs: z.number().int().min(100).max(60_000),
+      effect: effectSchema,
       returnToIdle: z.boolean().optional(),
-      minAmount: z.number().int().optional(),
-      deviceIds: z.array(z.number()).optional(),
-    }).parse(req.body);
+      minAmount: z.number().int().min(0).max(1_000_000).optional(),
+      deviceIds: z.array(z.number().int().min(1).max(2_147_483_647)).max(50).optional(),
+    }).strict().parse(req.body);
 
     const [trigger] = await db.insert(triggersTable).values({
       name: body.name,
@@ -63,31 +71,31 @@ router.post("/triggers", async (req, res) => {
 
 router.get("/triggers/:id", async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseId(req.params.id);
     const [trigger] = await db.select().from(triggersTable).where(eq(triggersTable.id, id));
     if (!trigger) return res.status(404).json({ error: "Trigger not found" });
     res.json(parseTrigger(trigger));
   } catch (err) {
-    req.log.error({ err }, "Failed to get trigger");
-    res.status(500).json({ error: "Failed to get trigger" });
+    const status = (err as { statusCode?: number }).statusCode ?? 500;
+    res.status(status).json({ error: status < 500 ? (err as Error).message : "Failed to get trigger" });
   }
 });
 
-router.patch("/triggers/:id", async (req, res) => {
+router.patch("/triggers/:id", writeLimiter, async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseId(req.params.id);
     const body = z.object({
-      name: z.string().optional(),
-      platform: z.string().optional(),
+      name: nameSchema.optional(),
+      platform: platformSchema.optional(),
       enabled: z.boolean().optional(),
-      color: z.string().optional(),
-      brightness: z.number().int().optional(),
-      durationMs: z.number().int().optional(),
-      effect: z.string().optional(),
+      color: hexColorSchema.optional(),
+      brightness: z.number().int().min(0).max(100).optional(),
+      durationMs: z.number().int().min(100).max(60_000).optional(),
+      effect: effectSchema.optional(),
       returnToIdle: z.boolean().optional(),
-      minAmount: z.number().int().optional(),
-      deviceIds: z.array(z.number()).optional(),
-    }).parse(req.body);
+      minAmount: z.number().int().min(0).max(1_000_000).optional(),
+      deviceIds: z.array(z.number().int().min(1).max(2_147_483_647)).max(50).optional(),
+    }).strict().parse(req.body);
 
     const updateData: Record<string, unknown> = { ...body };
     if (body.deviceIds !== undefined) {
@@ -98,25 +106,26 @@ router.patch("/triggers/:id", async (req, res) => {
     if (!trigger) return res.status(404).json({ error: "Trigger not found" });
     res.json(parseTrigger(trigger));
   } catch (err) {
-    req.log.error({ err }, "Failed to update trigger");
-    res.status(400).json({ error: "Failed to update trigger" });
+    const status = (err as { statusCode?: number }).statusCode ?? 400;
+    res.status(status).json({ error: "Failed to update trigger" });
   }
 });
 
-router.delete("/triggers/:id", async (req, res) => {
+router.delete("/triggers/:id", writeLimiter, async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
-    await db.delete(triggersTable).where(eq(triggersTable.id, id));
+    const id = parseId(req.params.id);
+    const result = await db.delete(triggersTable).where(eq(triggersTable.id, id)).returning();
+    if (!result.length) return res.status(404).json({ error: "Trigger not found" });
     res.status(204).send();
   } catch (err) {
-    req.log.error({ err }, "Failed to delete trigger");
-    res.status(500).json({ error: "Failed to delete trigger" });
+    const status = (err as { statusCode?: number }).statusCode ?? 500;
+    res.status(status).json({ error: "Failed to delete trigger" });
   }
 });
 
-router.post("/triggers/:id/fire", async (req, res) => {
+router.post("/triggers/:id/fire", writeLimiter, async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseId(req.params.id);
     const [trigger] = await db.select().from(triggersTable).where(eq(triggersTable.id, id));
     if (!trigger) return res.status(404).json({ error: "Trigger not found" });
 
@@ -132,8 +141,8 @@ router.post("/triggers/:id/fire", async (req, res) => {
     req.log.info({ triggerId: id }, "Trigger manually fired");
     res.json({ success: true, message: `Trigger "${trigger.name}" fired successfully` });
   } catch (err) {
-    req.log.error({ err }, "Failed to fire trigger");
-    res.status(500).json({ error: "Failed to fire trigger" });
+    const status = (err as { statusCode?: number }).statusCode ?? 500;
+    res.status(status).json({ error: "Failed to fire trigger" });
   }
 });
 

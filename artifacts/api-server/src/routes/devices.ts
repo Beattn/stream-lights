@@ -3,29 +3,45 @@ import { db } from "@workspace/db";
 import { devicesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { parseId, nameSchema, hexColorSchema, effectSchema, omitKeys } from "../lib/security";
+import { writeLimiter } from "../middlewares/rate-limit";
 
 const router = Router();
+
+const VALID_DEVICE_TYPES = [
+  "philips_hue", "lifx", "govee", "nanoleaf", "wiz", "kasa", "generic_http",
+] as const;
+
+const ipSchema = z
+  .string()
+  .max(45)
+  .regex(/^[\d.:[\]a-fA-F]+$/, "Invalid IP address")
+  .optional();
+
+function serializeDevice(d: typeof devicesTable.$inferSelect) {
+  return omitKeys({ ...d, createdAt: d.createdAt.toISOString() }, ["apiKey"]);
+}
 
 router.get("/devices", async (req, res) => {
   try {
     const devices = await db.select().from(devicesTable).orderBy(devicesTable.createdAt);
-    res.json(devices.map(d => ({ ...d, createdAt: d.createdAt.toISOString() })));
+    res.json(devices.map(serializeDevice));
   } catch (err) {
     req.log.error({ err }, "Failed to list devices");
     res.status(500).json({ error: "Failed to list devices" });
   }
 });
 
-router.post("/devices", async (req, res) => {
+router.post("/devices", writeLimiter, async (req, res) => {
   try {
     const body = z.object({
-      name: z.string().min(1),
-      type: z.string().min(1),
-      bridgeIp: z.string().optional(),
-      apiKey: z.string().optional(),
-      deviceId: z.string().optional(),
+      name: nameSchema,
+      type: z.enum(VALID_DEVICE_TYPES),
+      bridgeIp: ipSchema,
+      apiKey: z.string().max(500).optional(),
+      deviceId: z.string().max(200).optional(),
       enabled: z.boolean().optional(),
-    }).parse(req.body);
+    }).strict().parse(req.body);
 
     const [device] = await db.insert(devicesTable).values({
       name: body.name,
@@ -36,7 +52,7 @@ router.post("/devices", async (req, res) => {
       enabled: body.enabled ?? true,
     }).returning();
 
-    res.status(201).json({ ...device, createdAt: device.createdAt.toISOString() });
+    res.status(201).json(serializeDevice(device));
   } catch (err) {
     req.log.error({ err }, "Failed to create device");
     res.status(400).json({ error: "Invalid device data" });
@@ -45,77 +61,77 @@ router.post("/devices", async (req, res) => {
 
 router.get("/devices/:id", async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseId(req.params.id);
     const [device] = await db.select().from(devicesTable).where(eq(devicesTable.id, id));
     if (!device) return res.status(404).json({ error: "Device not found" });
-    res.json({ ...device, createdAt: device.createdAt.toISOString() });
+    res.json(serializeDevice(device));
   } catch (err) {
-    req.log.error({ err }, "Failed to get device");
-    res.status(500).json({ error: "Failed to get device" });
+    const status = (err as { statusCode?: number }).statusCode ?? 500;
+    res.status(status).json({ error: status < 500 ? (err as Error).message : "Failed to get device" });
   }
 });
 
-router.patch("/devices/:id", async (req, res) => {
+router.patch("/devices/:id", writeLimiter, async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseId(req.params.id);
     const body = z.object({
-      name: z.string().optional(),
-      bridgeIp: z.string().optional(),
-      apiKey: z.string().optional(),
-      deviceId: z.string().optional(),
+      name: nameSchema.optional(),
+      bridgeIp: ipSchema,
+      apiKey: z.string().max(500).optional(),
+      deviceId: z.string().max(200).optional(),
       enabled: z.boolean().optional(),
-    }).parse(req.body);
+    }).strict().parse(req.body);
 
     const [device] = await db.update(devicesTable).set(body).where(eq(devicesTable.id, id)).returning();
     if (!device) return res.status(404).json({ error: "Device not found" });
-    res.json({ ...device, createdAt: device.createdAt.toISOString() });
+    res.json(serializeDevice(device));
   } catch (err) {
-    req.log.error({ err }, "Failed to update device");
-    res.status(400).json({ error: "Failed to update device" });
+    const status = (err as { statusCode?: number }).statusCode ?? 400;
+    res.status(status).json({ error: "Failed to update device" });
   }
 });
 
-router.delete("/devices/:id", async (req, res) => {
+router.delete("/devices/:id", writeLimiter, async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
-    await db.delete(devicesTable).where(eq(devicesTable.id, id));
+    const id = parseId(req.params.id);
+    const result = await db.delete(devicesTable).where(eq(devicesTable.id, id)).returning();
+    if (!result.length) return res.status(404).json({ error: "Device not found" });
     res.status(204).send();
   } catch (err) {
-    req.log.error({ err }, "Failed to delete device");
-    res.status(500).json({ error: "Failed to delete device" });
+    const status = (err as { statusCode?: number }).statusCode ?? 500;
+    res.status(status).json({ error: "Failed to delete device" });
   }
 });
 
-router.post("/devices/:id/test", async (req, res) => {
+router.post("/devices/:id/test", writeLimiter, async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseId(req.params.id);
     const [device] = await db.select().from(devicesTable).where(eq(devicesTable.id, id));
     if (!device) return res.status(404).json({ error: "Device not found" });
 
     const body = z.object({
-      color: z.string(),
-      brightness: z.number(),
-      durationMs: z.number(),
-      effect: z.string(),
-      deviceIds: z.array(z.number()).optional(),
-    }).parse(req.body);
+      color: hexColorSchema,
+      brightness: z.number().int().min(0).max(100),
+      durationMs: z.number().int().min(100).max(30_000),
+      effect: effectSchema,
+    }).strict().parse(req.body);
 
     await db.update(devicesTable).set({
       currentColor: body.color,
       brightness: body.brightness,
     }).where(eq(devicesTable.id, id));
 
-    req.log.info({ deviceId: id, color: body.color, effect: body.effect }, "Test light triggered");
+    req.log.info({ deviceId: id, effect: body.effect }, "Test light triggered");
     res.json({ success: true, message: `Test flash sent to ${device.name}` });
   } catch (err) {
-    req.log.error({ err }, "Failed to test device");
-    res.status(400).json({ error: "Failed to test device" });
+    const status = (err as { statusCode?: number }).statusCode ?? 400;
+    res.status(status).json({ error: "Failed to test device" });
   }
 });
 
-router.post("/devices/:id/toggle", async (req, res) => {
+router.post("/devices/:id/toggle", writeLimiter, async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseId(req.params.id);
     const [device] = await db.select().from(devicesTable).where(eq(devicesTable.id, id));
     if (!device) return res.status(404).json({ error: "Device not found" });
 
@@ -124,10 +140,10 @@ router.post("/devices/:id/toggle", async (req, res) => {
       .where(eq(devicesTable.id, id))
       .returning();
 
-    res.json({ ...updated, createdAt: updated.createdAt.toISOString() });
+    res.json(serializeDevice(updated));
   } catch (err) {
-    req.log.error({ err }, "Failed to toggle device");
-    res.status(500).json({ error: "Failed to toggle device" });
+    const status = (err as { statusCode?: number }).statusCode ?? 500;
+    res.status(status).json({ error: "Failed to toggle device" });
   }
 });
 

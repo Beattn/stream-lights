@@ -1,19 +1,20 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { devicesTable, activityTable } from "@workspace/db";
+import { activityTable } from "@workspace/db";
 import { z } from "zod";
+import { hexColorSchema, effectSchema } from "../lib/security";
+import { writeLimiter } from "../middlewares/rate-limit";
 
 const router = Router();
 
-router.post("/lights/preview", async (req, res) => {
+router.post("/lights/preview", writeLimiter, async (req, res) => {
   try {
     const body = z.object({
-      color: z.string(),
+      color: hexColorSchema,
       brightness: z.number().int().min(0).max(100),
-      durationMs: z.number().int().min(100),
-      effect: z.string(),
-      deviceIds: z.array(z.number()).optional(),
-    }).parse(req.body);
+      durationMs: z.number().int().min(100).max(30_000),
+      effect: effectSchema,
+    }).strict().parse(req.body);
 
     await db.insert(activityTable).values({
       eventType: "light_preview",
@@ -24,7 +25,7 @@ router.post("/lights/preview", async (req, res) => {
       effectTriggered: body.effect,
     });
 
-    req.log.info({ color: body.color, effect: body.effect, durationMs: body.durationMs }, "Light preview triggered");
+    req.log.info({ effect: body.effect, durationMs: body.durationMs }, "Light preview triggered");
     res.json({ success: true, message: `Preview triggered: ${body.effect} at ${body.color}` });
   } catch (err) {
     req.log.error({ err }, "Failed to preview light");
