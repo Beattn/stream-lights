@@ -1,22 +1,37 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Stream Lights personal lighting control API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: devices
+    description: Smart light device management
+  - name: platforms
+    description: Streaming platform connections
+  - name: triggers
+    description: Event trigger configurations
+  - name: commands
+    description: Chat command configurations
+  - name: activity
+    description: Stream activity log
+  - name: lights
+    description: Direct light control
+  - name: dashboard
+    description: Dashboard overview
+  - name: settings
+    description: App settings
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +39,844 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /devices:
+    get:
+      operationId: listDevices
+      tags: [devices]
+      summary: List all smart light devices
+      responses:
+        "200":
+          description: List of devices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Device"
+    post:
+      operationId: createDevice
+      tags: [devices]
+      summary: Add a new smart light device
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceInput"
+      responses:
+        "201":
+          description: Device created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+
+  /devices/{id}:
+    get:
+      operationId: getDevice
+      tags: [devices]
+      summary: Get a device by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Device
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateDevice
+      tags: [devices]
+      summary: Update a device
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceUpdate"
+      responses:
+        "200":
+          description: Updated device
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+    delete:
+      operationId: deleteDevice
+      tags: [devices]
+      summary: Delete a device
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /devices/{id}/test:
+    post:
+      operationId: testDevice
+      tags: [devices]
+      summary: Send a test flash to a device
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LightEffect"
+      responses:
+        "200":
+          description: Test triggered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionResult"
+
+  /devices/{id}/toggle:
+    post:
+      operationId: toggleDevice
+      tags: [devices]
+      summary: Toggle device on/off
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Toggled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+
+  /platforms:
+    get:
+      operationId: listPlatforms
+      tags: [platforms]
+      summary: List all streaming platform connections
+      responses:
+        "200":
+          description: Platforms
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Platform"
+
+  /platforms/{platform}/connect:
+    post:
+      operationId: connectPlatform
+      tags: [platforms]
+      summary: Connect a streaming platform
+      parameters:
+        - name: platform
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformConnect"
+      responses:
+        "200":
+          description: Connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Platform"
+
+  /platforms/{platform}/disconnect:
+    post:
+      operationId: disconnectPlatform
+      tags: [platforms]
+      summary: Disconnect a streaming platform
+      parameters:
+        - name: platform
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Disconnected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Platform"
+
+  /triggers:
+    get:
+      operationId: listTriggers
+      tags: [triggers]
+      summary: List all event triggers
+      responses:
+        "200":
+          description: Triggers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Trigger"
+    post:
+      operationId: createTrigger
+      tags: [triggers]
+      summary: Create an event trigger
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TriggerInput"
+      responses:
+        "201":
+          description: Trigger created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trigger"
+
+  /triggers/{id}:
+    get:
+      operationId: getTrigger
+      tags: [triggers]
+      summary: Get a trigger by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Trigger
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trigger"
+    patch:
+      operationId: updateTrigger
+      tags: [triggers]
+      summary: Update a trigger
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TriggerUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trigger"
+    delete:
+      operationId: deleteTrigger
+      tags: [triggers]
+      summary: Delete a trigger
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /triggers/{id}/fire:
+    post:
+      operationId: fireTrigger
+      tags: [triggers]
+      summary: Manually fire a trigger for testing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Fired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionResult"
+
+  /commands:
+    get:
+      operationId: listCommands
+      tags: [commands]
+      summary: List all chat commands
+      responses:
+        "200":
+          description: Commands
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Command"
+    post:
+      operationId: createCommand
+      tags: [commands]
+      summary: Create a chat command
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommandInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Command"
+
+  /commands/{id}:
+    patch:
+      operationId: updateCommand
+      tags: [commands]
+      summary: Update a chat command
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommandUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Command"
+    delete:
+      operationId: deleteCommand
+      tags: [commands]
+      summary: Delete a chat command
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /activity:
+    get:
+      operationId: listActivity
+      tags: [activity]
+      summary: Get recent stream activity log
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: eventType
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Activity log
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityEntry"
+
+  /lights/preview:
+    post:
+      operationId: previewLight
+      tags: [lights]
+      summary: Trigger a live light preview on all devices
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LightEffect"
+      responses:
+        "200":
+          description: Preview triggered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionResult"
+
+  /dashboard/stats:
+    get:
+      operationId: getDashboardStats
+      tags: [dashboard]
+      summary: Get dashboard overview statistics
+      responses:
+        "200":
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Get app settings
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+    patch:
+      operationId: updateSettings
+      tags: [settings]
+      summary: Update app settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettingsUpdate"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+
 components:
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
 
+    Device:
+      type: object
+      required: [id, name, type, enabled, isOnline]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        type:
+          type: string
+          description: "philips_hue | lifx | govee | nanoleaf | wiz | kasa | generic_http"
+        bridgeIp:
+          type: ["string", "null"]
+        apiKey:
+          type: ["string", "null"]
+        deviceId:
+          type: ["string", "null"]
+        enabled:
+          type: boolean
+        isOnline:
+          type: boolean
+        currentColor:
+          type: ["string", "null"]
+        brightness:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
+
+    DeviceInput:
+      type: object
+      required: [name, type]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        bridgeIp:
+          type: string
+        apiKey:
+          type: string
+        deviceId:
+          type: string
+        enabled:
+          type: boolean
+
+    DeviceUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        bridgeIp:
+          type: string
+        apiKey:
+          type: string
+        deviceId:
+          type: string
+        enabled:
+          type: boolean
+
+    Platform:
+      type: object
+      required: [id, platform, connected]
+      properties:
+        id:
+          type: integer
+        platform:
+          type: string
+          description: "twitch | youtube | kick | streamlabs | streamelements"
+        channelName:
+          type: ["string", "null"]
+        connected:
+          type: boolean
+        clientId:
+          type: ["string", "null"]
+        eventsEnabled:
+          type: boolean
+        createdAt:
+          type: string
+
+    PlatformConnect:
+      type: object
+      required: [channelName]
+      properties:
+        channelName:
+          type: string
+        clientId:
+          type: string
+        clientSecret:
+          type: string
+        accessToken:
+          type: string
+
+    Trigger:
+      type: object
+      required: [id, eventType, name, enabled]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        eventType:
+          type: string
+          description: "follow | subscribe | bits | donation | raid | host | ban | timeout | chat_message | channel_point"
+        platform:
+          type: ["string", "null"]
+        enabled:
+          type: boolean
+        color:
+          type: string
+          description: Hex color like #FF0000
+        brightness:
+          type: integer
+        durationMs:
+          type: integer
+        effect:
+          type: string
+          description: "solid | strobe | pulse | rainbow | fade | police"
+        returnToIdle:
+          type: boolean
+        minAmount:
+          type: ["integer", "null"]
+          description: Minimum bits/donation to trigger
+        deviceIds:
+          type: array
+          items:
+            type: integer
+        createdAt:
+          type: string
+
+    TriggerInput:
+      type: object
+      required: [name, eventType, color, brightness, durationMs, effect]
+      properties:
+        name:
+          type: string
+        eventType:
+          type: string
+        platform:
+          type: string
+        enabled:
+          type: boolean
+        color:
+          type: string
+        brightness:
+          type: integer
+        durationMs:
+          type: integer
+        effect:
+          type: string
+        returnToIdle:
+          type: boolean
+        minAmount:
+          type: integer
+        deviceIds:
+          type: array
+          items:
+            type: integer
+
+    TriggerUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        platform:
+          type: string
+        enabled:
+          type: boolean
+        color:
+          type: string
+        brightness:
+          type: integer
+        durationMs:
+          type: integer
+        effect:
+          type: string
+        returnToIdle:
+          type: boolean
+        minAmount:
+          type: integer
+        deviceIds:
+          type: array
+          items:
+            type: integer
+
+    Command:
+      type: object
+      required: [id, command, name, enabled]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        command:
+          type: string
+          description: "!red, !party, etc."
+        color:
+          type: string
+        brightness:
+          type: integer
+        durationMs:
+          type: integer
+        effect:
+          type: string
+        enabled:
+          type: boolean
+        cooldownSeconds:
+          type: integer
+        usageCount:
+          type: integer
+        createdAt:
+          type: string
+
+    CommandInput:
+      type: object
+      required: [name, command, color, brightness, durationMs, effect]
+      properties:
+        name:
+          type: string
+        command:
+          type: string
+        color:
+          type: string
+        brightness:
+          type: integer
+        durationMs:
+          type: integer
+        effect:
+          type: string
+        enabled:
+          type: boolean
+        cooldownSeconds:
+          type: integer
+
+    CommandUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        command:
+          type: string
+        color:
+          type: string
+        brightness:
+          type: integer
+        durationMs:
+          type: integer
+        effect:
+          type: string
+        enabled:
+          type: boolean
+        cooldownSeconds:
+          type: integer
+
+    ActivityEntry:
+      type: object
+      required: [id, eventType, triggeredAt]
+      properties:
+        id:
+          type: integer
+        eventType:
+          type: string
+        platform:
+          type: ["string", "null"]
+        username:
+          type: ["string", "null"]
+        message:
+          type: ["string", "null"]
+        amount:
+          type: ["integer", "null"]
+        colorTriggered:
+          type: ["string", "null"]
+        effectTriggered:
+          type: ["string", "null"]
+        triggeredAt:
+          type: string
+
+    LightEffect:
+      type: object
+      required: [color, brightness, durationMs, effect]
+      properties:
+        color:
+          type: string
+        brightness:
+          type: integer
+        durationMs:
+          type: integer
+        effect:
+          type: string
+        deviceIds:
+          type: array
+          items:
+            type: integer
+
+    ActionResult:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+
+    DashboardStats:
+      type: object
+      required: [totalDevices, onlineDevices, activePlatforms, totalTriggers, activeTriggers, totalCommands, eventsToday, topEventTypes]
+      properties:
+        totalDevices:
+          type: integer
+        onlineDevices:
+          type: integer
+        activePlatforms:
+          type: integer
+        totalTriggers:
+          type: integer
+        activeTriggers:
+          type: integer
+        totalCommands:
+          type: integer
+        eventsToday:
+          type: integer
+        topEventTypes:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventTypeCount"
+
+    EventTypeCount:
+      type: object
+      required: [eventType, count]
+      properties:
+        eventType:
+          type: string
+        count:
+          type: integer
+
+    Settings:
+      type: object
+      required: [id, idleColor, idleBrightness, idleEnabled, globalEnabled]
+      properties:
+        id:
+          type: integer
+        globalEnabled:
+          type: boolean
+        idleColor:
+          type: string
+        idleBrightness:
+          type: integer
+        idleEnabled:
+          type: boolean
+        transitionSpeed:
+          type: integer
+        notificationsEnabled:
+          type: boolean
+        overlayEnabled:
+          type: boolean
+        overlayPort:
+          type: integer
+
+    SettingsUpdate:
+      type: object
+      properties:
+        globalEnabled:
+          type: boolean
+        idleColor:
+          type: string
+        idleBrightness:
+          type: integer
+        idleEnabled:
+          type: boolean
+        transitionSpeed:
+          type: integer
+        notificationsEnabled:
+          type: boolean
+        overlayEnabled:
+          type: boolean
+        overlayPort:
+          type: integer
