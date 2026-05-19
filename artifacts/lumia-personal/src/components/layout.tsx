@@ -1,19 +1,25 @@
 import { Link, useLocation } from "wouter";
-import { 
-  LayoutDashboard, 
-  Lightbulb, 
-  Zap, 
-  Terminal, 
-  Globe, 
+import {
+  LayoutDashboard,
+  Lightbulb,
+  Zap,
+  Terminal,
+  Globe,
   Settings as SettingsIcon,
-  Activity
+  Activity,
+  LogOut,
 } from "lucide-react";
 import { useHealthCheck } from "@workspace/api-client-react";
+import { useAuth } from "@/context/auth";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { data: health } = useHealthCheck();
-  
+  const { signOut } = useAuth();
+  const { toast } = useToast();
+
   const navItems = [
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
     { href: "/devices", label: "Devices", icon: Lightbulb },
@@ -22,6 +28,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { href: "/platforms", label: "Platforms", icon: Globe },
     { href: "/settings", label: "Settings", icon: SettingsIcon },
   ];
+
+  const handleSignOut = async () => {
+    await signOut();
+    toast({ title: "Signed out." });
+  };
 
   return (
     <div className="min-h-screen bg-background text-foreground flex">
@@ -33,18 +44,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <span className="font-bold text-lg tracking-tight uppercase">Stream Lights</span>
           </div>
         </div>
-        
+
         <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
           {navItems.map((item) => {
             const isActive = location === item.href;
             const Icon = item.icon;
-            
+
             return (
               <Link key={item.href} href={item.href}>
                 <div className={`
                   flex items-center gap-3 px-3 py-2 rounded-md transition-all cursor-pointer select-none
-                  ${isActive 
-                    ? "bg-primary/10 text-primary font-medium" 
+                  ${isActive
+                    ? "bg-primary/10 text-primary font-medium"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   }
                 `}>
@@ -55,8 +66,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        
-        <div className="p-4 border-t border-border">
+
+        <div className="p-4 border-t border-border space-y-2">
           <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground bg-muted/50 rounded-md">
             <Activity className="w-4 h-4" />
             <span>System:</span>
@@ -65,6 +76,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               {health?.status === 'ok' ? 'Online' : 'Offline'}
             </span>
           </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleSignOut}
+            className="w-full justify-start gap-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 px-3"
+          >
+            <LogOut className="w-4 h-4" />
+            Sign Out
+          </Button>
         </div>
       </aside>
 

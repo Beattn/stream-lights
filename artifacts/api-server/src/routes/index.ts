@@ -8,10 +8,14 @@ import activityRouter from "./activity";
 import lightsRouter from "./lights";
 import dashboardRouter from "./dashboard";
 import settingsRouter from "./settings";
+import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+
+router.use(requireAuth);
+
 router.use(devicesRouter);
 router.use(platformsRouter);
 router.use(triggersRouter);
