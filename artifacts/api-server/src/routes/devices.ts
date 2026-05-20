@@ -3,8 +3,9 @@ import { db } from "@workspace/db";
 import { devicesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { parseId, nameSchema, hexColorSchema, effectSchema, omitKeys } from "../lib/security";
-import { writeLimiter } from "../middlewares/rate-limit";
+import { parseId, nameSchema, hexColorSchema, effectSchema, omitKeys } from "../lib/security.js";
+import { alertQueue } from "../lib/alert-queue.js";
+import { writeLimiter } from "../middlewares/rate-limit.js";
 
 const router = Router();
 
@@ -14,8 +15,7 @@ const VALID_DEVICE_TYPES = [
 
 const ipSchema = z
   .string()
-  .max(45)
-  .regex(/^[\d.:[\]a-fA-F]+$/, "Invalid IP address")
+  .max(500)
   .optional();
 
 function serializeDevice(d: typeof devicesTable.$inferSelect) {
@@ -116,10 +116,10 @@ router.post("/devices/:id/test", writeLimiter, async (req, res) => {
       effect: effectSchema,
     }).strict().parse(req.body);
 
-    await db.update(devicesTable).set({
-      currentColor: body.color,
-      brightness: body.brightness,
-    }).where(eq(devicesTable.id, id));
+    alertQueue.enqueue(
+      { color: body.color, brightness: body.brightness, effect: body.effect, durationMs: body.durationMs },
+      { deviceIds: [id], returnToIdle: true, eventType: "light_preview", username: "test" }
+    );
 
     req.log.info({ deviceId: id, effect: body.effect }, "Test light triggered");
     res.json({ success: true, message: `Test flash sent to ${device.name}` });

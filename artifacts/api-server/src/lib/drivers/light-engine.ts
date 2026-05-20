@@ -1,0 +1,124 @@
+import { db } from "@workspace/db";
+import { devicesTable, settingsTable, activityTable } from "@workspace/db";
+import { eq, inArray } from "drizzle-orm";
+import { philipsHueApply, philipsHueIdle } from "./drivers/philips-hue.js";
+import { lifxApply, lifxIdle } from "./drivers/lifx.js";
+import { goveeApply, goveeIdle } from "./drivers/govee.js";
+import { nanoleafApply, nanoleafIdle } from "./drivers/nanoleaf.js";
+import { genericHttpApply, genericHttpIdle } from "./drivers/generic-http.js";
+import { logger } from "./logger.js";
+
+export interface LightParams {
+  color: string;
+  brightness: number;
+  effect: string;
+  durationMs: number;
+}
+
+export interface FireOptions {
+  deviceIds?: number[];
+  returnToIdle?: boolean;
+  eventType?: string;
+  platform?: string | null;
+  username?: string;
+  message?: string;
+}
+
+async function getEnabledDevices(deviceIds?: number[]) {
+  if (deviceIds && deviceIds.length > 0) {
+    const devices = await db.select().from(devicesTable).where(inArray(devicesTable.id, deviceIds));
+    return devices.filter((d) => d.enabled);
+  }
+  const devices = await db.select().from(devicesTable);
+  return devices.filter((d) => d.enabled);
+}
+
+async function getSettings() {
+  const [settings] = await db.select().from(settingsTable).limit(1);
+  return settings ?? {
+    globalEnabled: true,
+    idleColor: "#1a1a2e",
+    idleBrightness: 30,
+    idleEnabled: true,
+    transitionSpeed: 500,
+  };
+}
+
+async function applyToDevice(
+  device: typeof devicesTable.$inferSelect,
+  params: LightParams
+): Promise<void> {
+  try {
+    switch (device.type) {
+      case "philips_hue": await philipsHueApply(device, params); break;
+      case "lifx": await lifxApply(device, params); break;
+      case "govee": await goveeApply(device, params); break;
+      case "nanoleaf": await nanoleafApply(device, params); break;
+      case "generic_http": await genericHttpApply(device, params); break;
+      default:
+        logger.warn({ deviceType: device.type }, "Unknown device type — skipping");
+    }
+    await db.update(devicesTable).set({ currentColor: params.color, brightness: params.brightness }).where(eq(devicesTable.id, device.id));
+  } catch (err) {
+    logger.error({ err, deviceId: device.id, deviceType: device.type }, "Failed to apply light to device");
+  }
+}
+
+async function returnToIdleForDevice(device: typeof devicesTable.$inferSelect, idleColor: string, idleBrightness: number): Promise<void> {
+  try {
+    switch (device.type) {
+      case "philips_hue": await philipsHueIdle(device, idleColor, idleBrightness); break;
+      case "lifx": await lifxIdle(device, idleColor, idleBrightness); break;
+      case "govee": await goveeIdle(device, idleColor, idleBrightness); break;
+      case "nanoleaf": await nanoleafIdle(device, idleColor, idleBrightness); break;
+      case "generic_http": await genericHttpIdle(device, idleColor, idleBrightness); break;
+    }
+    await db.update(devicesTable).set({ currentColor: idleColor, brightness: idleBrightness }).where(eq(devicesTable.id, device.id));
+  } catch (err) {
+    logger.error({ err, deviceId: device.id }, "Failed to return device to idle");
+  }
+}
+
+export async function fireLights(params: LightParams, opts: FireOptions = {}): Promise<void> {
+  const settings = await getSettings();
+  if (!settings.globalEnabled) {
+    logger.info("Global lights disabled — skipping");
+    return;
+  }
+
+  const devices = await getEnabledDevices(opts.deviceIds);
+  if (devices.length === 0) {
+    logger.warn("No enabled devices found — skipping light command");
+    return;
+  }
+
+  await Promise.allSettled(devices.map((d) => applyToDevice(d, params)));
+
+  if (opts.eventType) {
+    await db.insert(activityTable).values({
+      eventType: opts.eventType,
+      platform: opts.platform ?? null,
+      username: opts.username ?? null,
+      message: opts.message ?? null,
+      colorTriggered: params.color,
+      effectTriggered: params.effect,
+    }).catch(() => {});
+  }
+
+  if (opts.returnToIdle !== false && settings.idleEnabled) {
+    setTimeout(async () => {
+      const freshDevices = await getEnabledDevices(opts.deviceIds);
+      await Promise.allSettled(
+        freshDevices.map((d) => returnToIdleForDevice(d, settings.idleColor, settings.idleBrightness))
+      );
+    }, params.durationMs);
+  }
+}
+
+export async function returnToIdle(deviceIds?: number[]): Promise<void> {
+  const settings = await getSettings();
+  const devices = await getEnabledDevices(deviceIds);
+  await Promise.allSettled(
+    devices.map((d) => returnToIdleForDevice(d, settings.idleColor, settings.idleBrightness))
+  );
+}

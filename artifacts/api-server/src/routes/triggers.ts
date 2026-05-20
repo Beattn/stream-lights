@@ -6,8 +6,9 @@ import { z } from "zod";
 import {
   parseId, nameSchema, hexColorSchema, effectSchema,
   platformSchema, eventTypeSchema,
-} from "../lib/security";
-import { writeLimiter } from "../middlewares/rate-limit";
+} from "../lib/security.js";
+import { alertQueue } from "../lib/alert-queue.js";
+import { writeLimiter } from "../middlewares/rate-limit.js";
 
 const router = Router();
 
@@ -128,6 +129,22 @@ router.post("/triggers/:id/fire", writeLimiter, async (req, res) => {
     const id = parseId(req.params.id);
     const [trigger] = await db.select().from(triggersTable).where(eq(triggersTable.id, id));
     if (!trigger) return res.status(404).json({ error: "Trigger not found" });
+    if (!trigger.enabled) return res.status(400).json({ error: "Trigger is disabled" });
+
+    let deviceIds: number[] = [];
+    try { deviceIds = JSON.parse(trigger.deviceIds) as number[]; } catch { deviceIds = []; }
+
+    alertQueue.enqueue(
+      { color: trigger.color, brightness: trigger.brightness, effect: trigger.effect, durationMs: trigger.durationMs },
+      {
+        deviceIds: deviceIds.length > 0 ? deviceIds : undefined,
+        returnToIdle: trigger.returnToIdle,
+        eventType: trigger.eventType,
+        platform: trigger.platform,
+        username: "manual_test",
+        message: `Manual fire: ${trigger.name}`,
+      }
+    );
 
     await db.insert(activityTable).values({
       eventType: trigger.eventType,
@@ -139,7 +156,7 @@ router.post("/triggers/:id/fire", writeLimiter, async (req, res) => {
     });
 
     req.log.info({ triggerId: id }, "Trigger manually fired");
-    res.json({ success: true, message: `Trigger "${trigger.name}" fired successfully` });
+    res.json({ success: true, message: `Trigger "${trigger.name}" fired — lights activating` });
   } catch (err) {
     const status = (err as { statusCode?: number }).statusCode ?? 500;
     res.status(status).json({ error: "Failed to fire trigger" });
