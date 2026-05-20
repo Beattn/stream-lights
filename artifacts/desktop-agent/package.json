@@ -4,6 +4,9 @@
   "description": "Stream Lights desktop agent — controls your lights locally",
   "main": "dist/main.js",
   "private": true,
+  "pnpm": {
+    "onlyBuiltDependencies": ["electron"]
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "npm run build && electron .",
@@ -24,12 +27,14 @@
   "build": {
     "appId": "com.streamlights.agent",
     "productName": "Stream Lights Agent",
+    "npmRebuild": false,
     "win": {
       "target": "nsis"
     },
     "nsis": {
       "oneClick": true,
-      "runAfterFinish": true
+      "runAfterFinish": true,
+      "artifactName": "StreamLightsAgent-Setup.exe"
     },
     "files": [
       "dist/**/*",
