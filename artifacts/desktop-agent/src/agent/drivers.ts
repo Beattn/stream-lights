@@ -9,6 +9,12 @@ export interface Device {
   brightness: number | null;
 }
 
+export interface EffectStep {
+  color: string;
+  durationMs: number;
+  brightness?: number;
+}
+
 export interface LightParams {
   color: string;
   brightness: number;
@@ -16,6 +22,7 @@ export interface LightParams {
   durationMs: number;
   audioUrl?: string;
   audioVolume?: number;
+  customSteps?: EffectStep[];
 }
 
 function hexToXY(hex: string): [number, number] {
@@ -81,6 +88,20 @@ async function goveeSet(key: string, device: string, model: string, cmd: object)
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export async function applyLight(device: Device, params: LightParams): Promise<void> {
+  if (params.effect === "custom" && params.customSteps && params.customSteps.length > 0) {
+    for (const step of params.customSteps) {
+      await applyLight(device, {
+        ...params,
+        color: step.color,
+        brightness: step.brightness ?? params.brightness,
+        effect: "solid",
+        durationMs: step.durationMs,
+      });
+      await sleep(step.durationMs);
+    }
+    return;
+  }
+
   const bri = params.brightness;
 
   if (device.type === "philips_hue" && device.bridgeIp && device.apiKey) {

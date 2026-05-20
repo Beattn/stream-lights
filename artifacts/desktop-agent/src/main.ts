@@ -3,6 +3,14 @@ import path from "path";
 import fs from "fs";
 import { agent, type AgentStatus } from "./agent/index";
 
+// ─── Hardcoded defaults — set these before building & distributing ───────────
+// The Anon Key is public by design (Supabase calls it "anon/public key").
+// Friends who install this app do not need to configure anything.
+const DEFAULT_SUPABASE_URL = "https://ylivjdmmmgotyctqbvaa.supabase.co";
+const DEFAULT_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlsaXZqZG1tbWdvdHljdHFidmFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMjAzMjEsImV4cCI6MjA5NDc5NjMyMX0.YlRRB5kGXXCm03YwOstZd3ZOfDpXAlqhi9SkssHaVBE";
+const DEFAULT_DASHBOARD_URL = "https://stream-lights.vercel.app"; // your Vercel URL
+// ─────────────────────────────────────────────────────────────────────────────
+
 const CONFIG_PATH = path.join(app.getPath("userData"), "config.json");
 
 interface Config {
@@ -106,16 +114,21 @@ function openSetupWindow(): void {
   }
 
   setupWindow = new BrowserWindow({
-    width: 500,
-    height: 580,
+    width: 480,
+    height: 600,
     resizable: false,
-    title: "Stream Lights Agent — Setup",
+    frame: false,
+    transparent: true,
+    title: "Stream Lights Agent",
     icon: makeIcon("green"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
     },
+    titleBarStyle: "hidden",
+    vibrancy: "dark",
+    backgroundMaterial: "acrylic",
   });
 
   setupWindow.loadFile(path.join(__dirname, "..", "setup.html"));
@@ -130,6 +143,10 @@ function notify(title: string, body: string): void {
 
 ipcMain.on("get-config", (event) => {
   event.returnValue = config ?? {};
+});
+
+ipcMain.on("close-setup", () => {
+  if (setupWindow && !setupWindow.isDestroyed()) setupWindow.close();
 });
 
 ipcMain.handle("save-config", async (_event, newConfig: Config) => {
@@ -168,10 +185,21 @@ app.whenReady().then(async () => {
 
   config = loadConfig();
 
+  // If no saved config, auto-use the hardcoded defaults — no setup screen needed.
   if (!config) {
-    openSetupWindow();
-    updateTray();
-    return;
+    if (DEFAULT_SUPABASE_URL && DEFAULT_SUPABASE_URL !== "https://ylivjdmmmgotyctqbvaa.supabase.co") {
+      config = {
+        supabaseUrl: DEFAULT_SUPABASE_URL,
+        supabaseKey: DEFAULT_SUPABASE_KEY,
+        dashboardUrl: DEFAULT_DASHBOARD_URL,
+      };
+      saveConfig(config);
+    } else {
+      // Defaults not filled in yet — show setup so the developer can configure
+      openSetupWindow();
+      updateTray();
+      return;
+    }
   }
 
   try {

@@ -241,6 +241,9 @@ class StreamLightsAgent {
     });
 
     for (const trigger of matching) {
+      let triggerSteps: Array<{ color: string; durationMs: number; brightness?: number }> = [];
+      try { triggerSteps = JSON.parse((trigger as any).custom_steps ?? "[]"); } catch { triggerSteps = []; }
+
       queue.enqueue(
         { 
           color: trigger.color, 
@@ -249,6 +252,7 @@ class StreamLightsAgent {
           durationMs: trigger.durationMs,
           audioUrl: trigger.audioUrl ?? undefined,
           audioVolume: trigger.audioVolume ?? 100,
+          ...(triggerSteps.length > 0 ? { customSteps: triggerSteps } : {}),
         },
         { deviceIds: trigger.deviceIds.length > 0 ? trigger.deviceIds : undefined, returnToIdle: trigger.returnToIdle, key: `${eventType}:${platform}` }
       );
@@ -266,6 +270,9 @@ class StreamLightsAgent {
     if (now - last < command.cooldownSeconds * 1000) return false;
 
     commandCooldowns.set(command.id, now);
+    let cmdSteps: Array<{ color: string; durationMs: number; brightness?: number }> = [];
+    try { cmdSteps = JSON.parse((command as any).custom_steps ?? "[]"); } catch { cmdSteps = []; }
+
     queue.enqueue(
       { 
         color: command.color, 
@@ -274,6 +281,7 @@ class StreamLightsAgent {
         durationMs: command.durationMs,
         audioUrl: command.audioUrl ?? undefined,
         audioVolume: command.audioVolume ?? 100,
+        ...(cmdSteps.length > 0 ? { customSteps: cmdSteps } : {}),
       },
       { returnToIdle: true, key: `cmd:${cmd}` }
     );
