@@ -21,7 +21,13 @@ function getSupabase() {
 
 async function ensureBucket(supabase: ReturnType<typeof createClient>) {
   const { error } = await supabase.storage.createBucket(AUDIO_BUCKET, { public: true });
-  if (error && !error.message.includes("already exists") && !error.message.includes("Duplicate")) {
+  if (
+    error &&
+    !error.message.includes("already exists") &&
+    !error.message.includes("Duplicate") &&
+    !error.message.includes("row-level security") &&
+    !error.message.includes("violates")
+  ) {
     throw new Error(`Could not create storage bucket "${AUDIO_BUCKET}": ${error.message}`);
   }
 }

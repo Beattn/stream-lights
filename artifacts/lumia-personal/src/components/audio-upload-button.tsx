@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Upload, Loader2, CheckCircle, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { apiUrl } from "@/lib/api";
 
 interface Props {
   onUploaded: (publicUrl: string) => void;
@@ -19,7 +20,7 @@ export default function AudioUploadButton({ onUploaded }: Props) {
     formData.append("file", file);
 
     try {
-      const res = await fetch("/api/audio/upload", {
+      const res = await fetch(apiUrl("/api/audio/upload"), {
         method: "POST",
         body: formData,
       });
