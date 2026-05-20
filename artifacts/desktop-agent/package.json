@@ -1,0 +1,44 @@
+{
+  "name": "stream-lights-agent",
+  "version": "1.0.0",
+  "description": "Stream Lights desktop agent — controls your lights locally",
+  "main": "dist/main.js",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "npm run build && electron .",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder --win"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.106.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.14",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "~5.9.3"
+  },
+  "build": {
+    "appId": "com.streamlights.agent",
+    "productName": "Stream Lights Agent",
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": true,
+      "runAfterFinish": true
+    },
+    "files": [
+      "dist/**/*",
+      "assets/**/*",
+      "setup.html",
+      "node_modules/**/*"
+    ],
+    "extraMetadata": {
+      "main": "dist/main.js"
+    }
+  }
+}

@@ -75,7 +75,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent className="p-0">
             <div className="divide-y divide-border/50 max-h-[500px] overflow-y-auto">
-              {!activity?.length ? (
+              {!Array.isArray(activity) || activity.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">
                   No recent activity. Go live to see events!
                 </div>
@@ -121,7 +121,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent className="p-4">
             <div className="space-y-4">
-              {stats?.topEventTypes.map((type, i) => (
+              {(stats?.topEventTypes ?? []).map((type, i) => (
                 <div key={type.eventType} className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <span className="w-6 text-center text-sm font-bold text-muted-foreground">{i + 1}</span>
