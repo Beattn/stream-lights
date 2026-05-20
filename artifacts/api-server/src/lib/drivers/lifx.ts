@@ -1,77 +1,91 @@
 import type { Device } from "@workspace/db";
 import type { LightParams } from "./light-engine";
 
-const BASE = "https://developer-api.govee.com/v1";
+const BASE = "https://api.lifx.com/v1/lights";
 
-async function goveeRequest(apiKey: string, body: object): Promise<void> {
-  await fetch(`${BASE}/devices/control`, {
+async function lifxRequest(
+  apiKey: string,
+  selector: string,
+  endpoint: string,
+  body: object
+): Promise<void> {
+  await fetch(`${BASE}/${selector}/${endpoint}`, {
     method: "PUT",
-    headers: { "Govee-API-Key": apiKey, "Content-Type": "application/json" },
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(8000),
   });
 }
 
-function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  return {
-    r: parseInt(hex.slice(1, 3), 16),
-    g: parseInt(hex.slice(3, 5), 16),
-    b: parseInt(hex.slice(5, 7), 16),
-  };
+function hexToHsl(hex: string): { hue: number; saturation: number } {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  let hue = 0;
+  if (delta !== 0) {
+    if (max === r) hue = ((g - b) / delta) % 6;
+    else if (max === g) hue = (b - r) / delta + 2;
+    else hue = (r - g) / delta + 4;
+    hue = Math.round(hue * 60);
+    if (hue < 0) hue += 360;
+  }
+  const saturation = max === 0 ? 0 : delta / max;
+  return { hue, saturation: Math.round(saturation * 100) / 100 };
 }
 
-function parseDeviceId(deviceId: string | null): { device: string; model: string } {
-  if (!deviceId) throw new Error("Govee requires deviceId in format MODEL:MAC (e.g. H6159:AA:BB:CC)");
-  const idx = deviceId.indexOf(":");
-  if (idx === -1) throw new Error("Govee deviceId must be MODEL:MAC format");
-  return { model: deviceId.slice(0, idx), device: deviceId.slice(idx + 1) };
-}
+export async function lifxApply(device: Device, params: LightParams): Promise<void> {
+  if (!device.apiKey) throw new Error("LIFX requires apiKey");
+  const selector = device.deviceId ?? "all";
+  const { hue, saturation } = hexToHsl(params.color);
+  const brightness = params.brightness / 100;
 
-export async function goveeApply(device: Device, params: LightParams): Promise<void> {
-  if (!device.apiKey) throw new Error("Govee requires apiKey");
-  const { device: mac, model } = parseDeviceId(device.deviceId);
-  const rgb = hexToRgb(params.color);
-
-  await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "turn", value: "on" } });
-  await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "brightness", value: params.brightness } });
-
-  if (params.effect === "police") {
+  if (params.effect === "strobe") {
+    await lifxRequest(device.apiKey, selector, "effects/pulse", {
+      color: `hue:${hue} saturation:${saturation} brightness:${brightness}`,
+      from_color: "brightness:0",
+      period: 0.3,
+      cycles: 6,
+      persist: false,
+    });
+  } else if (params.effect === "police") {
     for (let i = 0; i < 4; i++) {
-      await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "color", value: { r: 255, g: 0, b: 0 } } });
+      await lifxRequest(device.apiKey, selector, "state", { color: "red", brightness: 1, fast: true });
       await sleep(300);
-      await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "color", value: { r: 0, g: 0, b: 255 } } });
+      await lifxRequest(device.apiKey, selector, "state", { color: "blue", brightness: 1, fast: true });
       await sleep(300);
     }
+    await lifxRequest(device.apiKey, selector, "state", {
+      color: `hue:${hue} saturation:${saturation} brightness:${brightness}`,
+    });
   } else if (params.effect === "rainbow") {
-    const colors = [
-      { r: 255, g: 0, b: 0 }, { r: 255, g: 127, b: 0 }, { r: 255, g: 255, b: 0 },
-      { r: 0, g: 255, b: 0 }, { r: 0, g: 0, b: 255 }, { r: 139, g: 0, b: 255 },
-    ];
-    const delay = params.durationMs / colors.length;
-    for (const c of colors) {
-      await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "color", value: c } });
+    const hues = [0, 30, 60, 120, 240, 270];
+    const delay = params.durationMs / hues.length;
+    for (const h of hues) {
+      await lifxRequest(device.apiKey, selector, "state", { color: `hue:${h} saturation:1 brightness:1`, fast: true });
       await sleep(delay);
     }
-  } else if (params.effect === "strobe") {
-    for (let i = 0; i < 6; i++) {
-      await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "turn", value: "on" } });
-      await sleep(150);
-      await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "turn", value: "off" } });
-      await sleep(150);
-    }
-    await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "turn", value: "on" } });
-    await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "color", value: rgb } });
   } else {
-    await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "color", value: rgb } });
+    await lifxRequest(device.apiKey, selector, "state", {
+      color: `hue:${hue} saturation:${saturation} brightness:${brightness}`,
+      power: "on",
+    });
   }
 }
 
-export async function goveeIdle(device: Device, idleColor: string, idleBrightness: number): Promise<void> {
-  if (!device.apiKey || !device.deviceId) return;
-  const { device: mac, model } = parseDeviceId(device.deviceId);
-  const rgb = hexToRgb(idleColor);
-  await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "brightness", value: idleBrightness } });
-  await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "color", value: rgb } });
+export async function lifxIdle(device: Device, idleColor: string, idleBrightness: number): Promise<void> {
+  if (!device.apiKey) return;
+  const selector = device.deviceId ?? "all";
+  const { hue, saturation } = hexToHsl(idleColor);
+  await lifxRequest(device.apiKey, selector, "state", {
+    color: `hue:${hue} saturation:${saturation} brightness:${idleBrightness / 100}`,
+    power: "on",
+  });
 }
 
 function sleep(ms: number): Promise<void> {
