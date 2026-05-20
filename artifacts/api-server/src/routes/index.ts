@@ -1,5 +1,8 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
+import storageRouter from "./storage";
+import audioUploadRouter from "./audio-upload";
+import audioFetchRouter from "./audio-fetch";
 import devicesRouter from "./devices";
 import platformsRouter from "./platforms";
 import triggersRouter from "./triggers";
@@ -15,6 +18,9 @@ import { requireAuth } from "../middlewares/auth";
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(storageRouter);
+router.use(audioUploadRouter);
+router.use(audioFetchRouter);
 router.use(webhooksRouter);
 
 router.use(requireAuth);

@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import CustomEffectBuilder, { type EffectStep } from "@/components/custom-effect-builder";
 import AudioClipPicker from "@/components/audio-clip-picker";
+import AudioUploadButton from "@/components/audio-upload-button";
+import AudioFetchButton, { isNonAudioUrl } from "@/components/audio-fetch-button";
 
 const EFFECTS = ["solid", "strobe", "pulse", "rainbow", "fade", "police", "custom"];
 
@@ -259,13 +261,22 @@ function AddCommandModal() {
               <Label className="text-sm font-medium">Audio (optional)</Label>
             </div>
             <div className="grid gap-2">
-              <Label className="text-xs text-muted-foreground">URL — supports .mp3, .wav or any direct audio link</Label>
-              <Input
-                value={audioUrl}
-                onChange={e => { setAudioUrl(e.target.value); setAudioStartMs(0); setAudioEndMs(null); }}
-                placeholder="https://example.com/sound.mp3"
-                className="text-sm"
-              />
+              <Label className="text-xs text-muted-foreground">Upload a file, paste an audio URL, or paste a YouTube link</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={audioUrl}
+                  onChange={e => { setAudioUrl(e.target.value); setAudioStartMs(0); setAudioEndMs(null); }}
+                  placeholder="https://youtu.be/…  or  https://example.com/sound.mp3"
+                  className="text-sm"
+                />
+                <AudioUploadButton onUploaded={url => { setAudioUrl(url); setAudioStartMs(0); setAudioEndMs(null); }} />
+              </div>
+              {isNonAudioUrl(audioUrl) && (
+                <AudioFetchButton
+                  url={audioUrl}
+                  onFetched={url => { setAudioUrl(url); setAudioStartMs(0); setAudioEndMs(null); }}
+                />
+              )}
             </div>
             {audioUrl && (
               <>
