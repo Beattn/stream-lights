@@ -1,8 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import { randomUUID } from "crypto";
 import { createClient } from "@supabase/supabase-js";
-import ytdl from "@distube/ytdl-core";
 import { z } from "zod";
+import { db, audioJobsTable } from "@workspace/db";
 import { writeLimiter } from "../middlewares/rate-limit";
 
 const router = Router();
@@ -35,28 +35,6 @@ async function ensureBucket(supabase: ReturnType<typeof createClient>) {
   }
 }
 
-async function downloadYouTubeAudio(url: string): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      stream.destroy();
-      reject(new Error("YouTube download timed out. The video may be too long or the server is being rate-limited by YouTube."));
-    }, DOWNLOAD_TIMEOUT_MS);
-
-    const stream = ytdl(url, { filter: "audioonly", quality: "highestaudio" });
-    const chunks: Buffer[] = [];
-
-    stream.on("data", (chunk: Buffer) => chunks.push(chunk));
-    stream.on("end", () => {
-      clearTimeout(timer);
-      resolve(Buffer.concat(chunks));
-    });
-    stream.on("error", (err: Error) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-  });
-}
-
 router.post("/audio/fetch", writeLimiter, async (req: Request, res: Response) => {
   const parsed = Body.safeParse(req.body);
   if (!parsed.success) {
@@ -66,39 +44,24 @@ router.post("/audio/fetch", writeLimiter, async (req: Request, res: Response) =>
 
   const { url } = parsed.data;
 
+  // ── YouTube: delegate to desktop agent via job queue ────────────────────
+  if (YOUTUBE_REGEX.test(url)) {
+    try {
+      const jobId = randomUUID();
+      await db.insert(audioJobsTable).values({ id: jobId, url, status: "pending" });
+      res.json({ jobId });
+    } catch (err) {
+      req.log.error({ err }, "Failed to create audio job");
+      res.status(500).json({ error: "Failed to queue download. Make sure the desktop agent is running." });
+    }
+    return;
+  }
+
+  // ── Generic HTTP audio URL: download & re-host on server ────────────────
   try {
     const supabase = getSupabase();
     await ensureBucket(supabase);
 
-    if (YOUTUBE_REGEX.test(url)) {
-      if (!ytdl.validateURL(url)) {
-        res.status(400).json({ error: "Invalid YouTube URL." });
-        return;
-      }
-
-      let title = "audio";
-      try {
-        const info = await ytdl.getInfo(url);
-        title = info.videoDetails.title.slice(0, 80).replace(/[^\w\s-]/g, "").trim();
-      } catch {
-        // info fetch failed — still attempt download with a generic name
-      }
-
-      const objectPath = `${randomUUID()}-${title.replace(/\s+/g, "-")}.mp3`;
-      const buffer = await downloadYouTubeAudio(url);
-
-      const { error } = await supabase.storage
-        .from(AUDIO_BUCKET)
-        .upload(objectPath, buffer, { contentType: "audio/mpeg", upsert: false });
-
-      if (error) throw new Error(error.message);
-
-      const { data } = supabase.storage.from(AUDIO_BUCKET).getPublicUrl(objectPath);
-      res.json({ url: data.publicUrl, title });
-      return;
-    }
-
-    // ── Generic HTTP audio URL: download & re-host ──────────────────────
     const fetchRes = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; StreamLights/1.0)" },
       redirect: "follow",
@@ -138,10 +101,6 @@ router.post("/audio/fetch", writeLimiter, async (req: Request, res: Response) =>
     const msg = (err as Error).message ?? "";
     if (msg.includes("timed out")) {
       res.status(504).json({ error: msg });
-    } else if (msg.includes("429") || msg.includes("Too Many Requests")) {
-      res.status(429).json({ error: "YouTube is rate-limiting this server right now. Please wait a few minutes and try again, or download the file yourself and upload it directly." });
-    } else if (msg.includes("private") || msg.includes("age-restricted") || msg.includes("unavailable")) {
-      res.status(400).json({ error: `Can't access this video: ${msg}` });
     } else {
       res.status(500).json({ error: msg || "Failed to fetch audio." });
     }

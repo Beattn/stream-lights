@@ -12,8 +12,41 @@ export async function runMigrations(): Promise<void> {
         ADD COLUMN IF NOT EXISTS custom_steps text DEFAULT '[]';
     `);
 
-    // Ensure storage policies exist so the service role key can upload files
-    // even if the Supabase project has RLS enabled on storage.objects.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS audio_jobs (
+        id          text PRIMARY KEY,
+        url         text NOT NULL,
+        status      text NOT NULL DEFAULT 'pending',
+        result_url  text,
+        title       text,
+        error       text,
+        created_at  timestamptz NOT NULL DEFAULT now()
+      );
+    `);
+
+    // Clean up stale jobs older than 24 hours
+    await client.query(`
+      DELETE FROM audio_jobs
+      WHERE created_at < now() - INTERVAL '24 hours';
+    `);
+
+    // Ensure RLS is enabled and permissive so the desktop agent (anon + user JWT)
+    // can read and update jobs.
+    await client.query(`ALTER TABLE audio_jobs ENABLE ROW LEVEL SECURITY;`);
+
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_policies
+          WHERE schemaname = 'public' AND tablename = 'audio_jobs' AND policyname = 'audio_jobs_all'
+        ) THEN
+          CREATE POLICY "audio_jobs_all" ON audio_jobs FOR ALL USING (true) WITH CHECK (true);
+        END IF;
+      END $$;
+    `);
+
+    // Storage policies for audio bucket (belt-and-suspenders alongside the explicit JWT header)
     await client.query(`
       DO $$
       BEGIN
@@ -46,8 +79,6 @@ export async function runMigrations(): Promise<void> {
     console.info("[migrate] Schema up to date");
   } catch (err) {
     const msg = (err as Error).message ?? "";
-    // Storage schema may not be accessible via the app DB user — that's OK,
-    // the explicit Authorization header on the Supabase client handles it.
     if (msg.includes("storage") || msg.includes("permission denied")) {
       console.warn("[migrate] Could not create storage policies (insufficient DB permissions) — skipping:", msg);
     } else {

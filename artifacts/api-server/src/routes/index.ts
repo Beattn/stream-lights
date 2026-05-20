@@ -3,6 +3,7 @@ import healthRouter from "./health";
 import storageRouter from "./storage";
 import audioUploadRouter from "./audio-upload";
 import audioFetchRouter from "./audio-fetch";
+import audioJobsRouter from "./audio-jobs";
 import devicesRouter from "./devices";
 import platformsRouter from "./platforms";
 import triggersRouter from "./triggers";
@@ -21,6 +22,7 @@ router.use(healthRouter);
 router.use(storageRouter);
 router.use(audioUploadRouter);
 router.use(audioFetchRouter);
+router.use(audioJobsRouter);
 router.use(webhooksRouter);
 
 router.use(requireAuth);

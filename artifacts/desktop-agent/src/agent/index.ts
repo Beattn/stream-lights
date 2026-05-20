@@ -3,6 +3,7 @@ import { applyLight, applyIdle, type Device, type LightParams } from "./drivers"
 import { audioPlayer } from "./audio";
 import { KickClient } from "./kick";
 import { TwitchClient } from "./twitch";
+import { startAudioJobProcessor, stopAudioJobProcessor } from "./audio-jobs";
 
 interface Trigger {
   id: number;
@@ -158,6 +159,7 @@ class StreamLightsAgent {
       this._running = true;
       this.startPlatforms();
       this.pollTimer = setInterval(() => this.loadConfig(), 30_000);
+      startAudioJobProcessor(this.supabase);
       this.emitStatus();
       console.log("[Agent] Started — devices:", this.devices.length, "triggers:", this.triggers.length);
     } catch (err) {
@@ -174,6 +176,7 @@ class StreamLightsAgent {
     this.twitchClient?.stop();
     this.kickClient = null;
     this.twitchClient = null;
+    stopAudioJobProcessor();
     this.emitStatus();
   }
 
