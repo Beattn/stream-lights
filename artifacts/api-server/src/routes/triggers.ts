@@ -53,6 +53,8 @@ router.post("/triggers", writeLimiter, async (req, res) => {
       audioUrl: z.string().url().optional(),
       audioFile: z.string().optional(),
       audioVolume: z.number().int().min(0).max(100).optional(),
+      audioStartMs: z.number().int().min(0).optional(),
+      audioEndMs: z.number().int().min(0).optional(),
     }).strict().parse(req.body);
 
     const [trigger] = await db.insert(triggersTable).values({
@@ -70,6 +72,8 @@ router.post("/triggers", writeLimiter, async (req, res) => {
       audioUrl: body.audioUrl ?? null,
       audioFile: body.audioFile ?? null,
       audioVolume: body.audioVolume ?? 100,
+      audioStartMs: body.audioStartMs ?? 0,
+      audioEndMs: body.audioEndMs ?? null,
     }).returning();
 
     res.status(201).json(parseTrigger(trigger));
@@ -111,6 +115,8 @@ router.patch("/triggers/:id", writeLimiter, async (req, res) => {
       audioUrl: z.string().url().optional(),
       audioFile: z.string().optional(),
       audioVolume: z.number().int().min(0).max(100).optional(),
+      audioStartMs: z.number().int().min(0).optional(),
+      audioEndMs: z.number().int().min(0).optional(),
     }).strict().parse(req.body);
 
     const updateData: Record<string, unknown> = { ...body };

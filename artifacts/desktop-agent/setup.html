@@ -98,7 +98,7 @@
     .card {
       position: relative;
       z-index: 1;
-      width: 440px;
+      width: 420px;
       background: rgba(10, 10, 24, 0.75);
       border: 1px solid var(--border);
       border-radius: 20px;
@@ -447,29 +447,29 @@
       </div>
       <div class="badge">
         <div class="badge-dot"></div>
-        Setup
+        Sign in
       </div>
     </div>
 
-    <!-- Supabase section -->
+    <!-- Login section -->
     <div class="section">
-      <div class="section-label">Database connection</div>
+      <div class="section-label">Your account</div>
 
       <div class="field">
-        <label>Project URL</label>
+        <label>Email</label>
         <div class="input-wrap">
           <span class="input-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/>
-              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+              <polyline points="22,6 12,13 2,6"/>
             </svg>
           </span>
-          <input id="url" type="text" placeholder="https://xxxx.supabase.co" autocomplete="off" spellcheck="false" />
+          <input id="email" type="email" placeholder="you@example.com" autocomplete="email" spellcheck="false" />
         </div>
       </div>
 
       <div class="field">
-        <label>Anon / Public Key</label>
+        <label>Password</label>
         <div class="input-wrap">
           <span class="input-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -477,7 +477,7 @@
               <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
             </svg>
           </span>
-          <input id="key" type="password" placeholder="eyJhbGciOiJIUzI1NiIs..." autocomplete="off" spellcheck="false" />
+          <input id="password" type="password" placeholder="••••••••" autocomplete="current-password" />
         </div>
       </div>
     </div>
@@ -520,23 +520,22 @@
     <button class="btn" id="save" onclick="save()">
       <div class="btn-content">
         <div class="spinner"></div>
-        <span class="btn-text-default">Connect &amp; Start Agent</span>
-        <span class="btn-text-loading">Connecting…</span>
+        <span class="btn-text-default">Sign in &amp; Start Agent</span>
+        <span class="btn-text-loading">Signing in…</span>
       </div>
     </button>
 
     <!-- Footer -->
     <div class="footer">
-      Find your credentials in <strong>Supabase → Settings → API</strong>
+      Use the same account you created on the dashboard.
     </div>
   </div>
 
   <script>
-    // Load saved config on startup
+    // Load saved email on startup (never pre-fill password)
     window.addEventListener('DOMContentLoaded', () => {
       const config = window.electronAPI?.getConfig?.() || {};
-      if (config.supabaseUrl) document.getElementById('url').value = config.supabaseUrl;
-      if (config.supabaseKey) document.getElementById('key').value = config.supabaseKey;
+      if (config.email) document.getElementById('email').value = config.email;
       if (config.dashboardUrl) document.getElementById('dashboard').value = config.dashboardUrl;
     });
 
@@ -546,10 +545,9 @@
       document.getElementById('error-text').textContent = msg;
       successEl.classList.remove('visible');
       el.classList.add('visible');
-      // shake the card
       const card = document.querySelector('.card');
       card.classList.remove('shake');
-      void card.offsetWidth; // reflow
+      void card.offsetWidth;
       card.classList.add('shake');
     }
 
@@ -570,12 +568,12 @@
       const btn = document.getElementById('save');
       hideAll();
 
-      const url = document.getElementById('url').value.trim();
-      const key = document.getElementById('key').value.trim();
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
       const dashboard = document.getElementById('dashboard').value.trim();
 
-      if (!url || !key) {
-        showError('Supabase URL and Key are required.');
+      if (!email || !password) {
+        showError('Email and password are required.');
         return;
       }
 
@@ -583,15 +581,15 @@
       btn.classList.add('loading');
 
       try {
-        const result = await window.electronAPI.saveConfig({ supabaseUrl: url, supabaseKey: key, dashboardUrl: dashboard });
+        const result = await window.electronAPI.saveConfig({ email, password, dashboardUrl: dashboard });
         if (result.success) {
           btn.classList.remove('loading');
-          btn.querySelector('.btn-text-default').textContent = '✓ Connected!';
+          btn.querySelector('.btn-text-default').textContent = '✓ Signed in!';
           showSuccess('Agent is running. You can close this window — it will stay in your system tray.');
         } else {
           btn.classList.remove('loading');
           btn.disabled = false;
-          showError(result.error || 'Failed to connect. Check your credentials and try again.');
+          showError(result.error || 'Sign in failed. Check your email and password.');
         }
       } catch (e) {
         btn.classList.remove('loading');

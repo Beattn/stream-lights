@@ -45,6 +45,8 @@ router.post("/commands", writeLimiter, async (req, res) => {
       audioUrl: z.string().url().optional(),
       audioFile: z.string().optional(),
       audioVolume: z.number().int().min(0).max(100).optional(),
+      audioStartMs: z.number().int().min(0).optional(),
+      audioEndMs: z.number().int().min(0).optional(),
       customSteps: z.string().optional(),
     }).strict().parse(req.body);
 
@@ -62,6 +64,8 @@ router.post("/commands", writeLimiter, async (req, res) => {
       audioUrl: body.audioUrl ?? null,
       audioFile: body.audioFile ?? null,
       audioVolume: body.audioVolume ?? 100,
+      audioStartMs: body.audioStartMs ?? 0,
+      audioEndMs: body.audioEndMs ?? null,
       customSteps: body.customSteps ?? "[]",
     }).returning();
 
@@ -87,6 +91,8 @@ router.patch("/commands/:id", writeLimiter, async (req, res) => {
       audioUrl: z.string().url().optional(),
       audioFile: z.string().optional(),
       audioVolume: z.number().int().min(0).max(100).optional(),
+      audioStartMs: z.number().int().min(0).optional(),
+      audioEndMs: z.number().int().min(0).optional(),
       customSteps: z.string().optional(),
     }).strict().parse(req.body);
 

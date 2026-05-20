@@ -3,19 +3,17 @@ import path from "path";
 import fs from "fs";
 import { agent, type AgentStatus } from "./agent/index";
 
-// ─── Hardcoded defaults — set these before building & distributing ───────────
-// The Anon Key is public by design (Supabase calls it "anon/public key").
-// Friends who install this app do not need to configure anything.
-const DEFAULT_SUPABASE_URL = "https://ylivjdmmmgotyctqbvaa.supabase.co";
-const DEFAULT_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlsaXZqZG1tbWdvdHljdHFidmFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMjAzMjEsImV4cCI6MjA5NDc5NjMyMX0.YlRRB5kGXXCm03YwOstZd3ZOfDpXAlqhi9SkssHaVBE";
-const DEFAULT_DASHBOARD_URL = "https://stream-lights.vercel.app"; // your Vercel URL
+// ─── Hardcoded Supabase connection — pre-filled so users never need to enter it ─
+const SUPABASE_URL = "https://ylivjdmmmgotyctqbvaa.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlsaXZqZG1tbWdvdHljdHFidmFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMjAzMjEsImV4cCI6MjA5NDc5NjMyMX0.YlRRB5kGXXCm03YwOstZd3ZOfDpXAlqhi9SkssHaVBE";
+const DEFAULT_DASHBOARD_URL = "https://stream-lights.vercel.app";
 // ─────────────────────────────────────────────────────────────────────────────
 
 const CONFIG_PATH = path.join(app.getPath("userData"), "config.json");
 
 interface Config {
-  supabaseUrl: string;
-  supabaseKey: string;
+  email: string;
+  password: string;
   dashboardUrl: string;
 }
 
@@ -80,10 +78,7 @@ function buildTrayMenu(): Electron.Menu {
   });
 
   items.push({ type: "separator" });
-  items.push({
-    label: "Settings",
-    click: () => openSetupWindow(),
-  });
+  items.push({ label: "Settings", click: () => openSetupWindow() });
   items.push({ type: "separator" });
   items.push({ label: "Quit", click: () => { agent.stop(); app.quit(); } });
 
@@ -114,8 +109,8 @@ function openSetupWindow(): void {
   }
 
   setupWindow = new BrowserWindow({
-    width: 480,
-    height: 600,
+    width: 460,
+    height: 560,
     resizable: false,
     frame: false,
     transparent: true,
@@ -141,8 +136,9 @@ function notify(title: string, body: string): void {
   }
 }
 
+// Return only safe fields to the renderer (never send password back)
 ipcMain.on("get-config", (event) => {
-  event.returnValue = config ?? {};
+  event.returnValue = config ? { email: config.email, dashboardUrl: config.dashboardUrl } : {};
 });
 
 ipcMain.on("close-setup", () => {
@@ -152,15 +148,26 @@ ipcMain.on("close-setup", () => {
 ipcMain.handle("save-config", async (_event, newConfig: Config) => {
   try {
     const { createClient } = await import("@supabase/supabase-js");
-    const sb = createClient(newConfig.supabaseUrl, newConfig.supabaseKey, { auth: { persistSession: false } });
-    const { error } = await sb.from("devices").select("count").limit(1);
-    if (error) throw new Error(error.message);
+    const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
 
-    saveConfig(newConfig);
-    config = newConfig;
+    // Authenticate with email + password
+    const { error: authError } = await sb.auth.signInWithPassword({
+      email: newConfig.email,
+      password: newConfig.password,
+    });
+    if (authError) throw new Error(authError.message);
+
+    const saved: Config = {
+      email: newConfig.email,
+      password: newConfig.password,
+      dashboardUrl: newConfig.dashboardUrl || DEFAULT_DASHBOARD_URL,
+    };
+
+    saveConfig(saved);
+    config = saved;
 
     await agent.stop();
-    await agent.start(newConfig.supabaseUrl, newConfig.supabaseKey, (status) => updateTray(status));
+    await agent.start(SUPABASE_URL, SUPABASE_KEY, (status) => updateTray(status));
     updateTray();
     notify("Stream Lights", "Agent connected and running!");
 
@@ -169,6 +176,24 @@ ipcMain.handle("save-config", async (_event, newConfig: Config) => {
     return { success: false, error: (err as Error).message };
   }
 });
+
+async function startWithSavedConfig(cfg: Config): Promise<boolean> {
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
+
+    const { error: authError } = await sb.auth.signInWithPassword({
+      email: cfg.email,
+      password: cfg.password,
+    });
+    if (authError) throw new Error(authError.message);
+
+    await agent.start(SUPABASE_URL, SUPABASE_KEY, (status) => updateTray(status));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 app.whenReady().then(async () => {
   app.setAppUserModelId("Stream Lights Agent");
@@ -185,30 +210,20 @@ app.whenReady().then(async () => {
 
   config = loadConfig();
 
-  // If no saved config, auto-use the hardcoded defaults — no setup screen needed.
-  if (!config) {
-    if (DEFAULT_SUPABASE_URL && DEFAULT_SUPABASE_URL !== "https://ylivjdmmmgotyctqbvaa.supabase.co") {
-      config = {
-        supabaseUrl: DEFAULT_SUPABASE_URL,
-        supabaseKey: DEFAULT_SUPABASE_KEY,
-        dashboardUrl: DEFAULT_DASHBOARD_URL,
-      };
-      saveConfig(config);
+  if (config?.email && config?.password) {
+    const ok = await startWithSavedConfig(config);
+    if (ok) {
+      notify("Stream Lights", "Agent started — controlling your lights!");
     } else {
-      // Defaults not filled in yet — show setup so the developer can configure
-      openSetupWindow();
+      // Saved credentials no longer valid — ask user to sign in again
+      console.error("[Main] Saved credentials rejected, opening setup.");
       updateTray();
-      return;
+      openSetupWindow();
     }
-  }
-
-  try {
-    await agent.start(config.supabaseUrl, config.supabaseKey, (status) => updateTray(status));
-    notify("Stream Lights", "Agent started — controlling your lights!");
-  } catch (err) {
-    console.error("[Main] Agent start failed:", err);
-    updateTray();
+  } else {
+    // No saved credentials — show sign-in screen
     openSetupWindow();
+    updateTray();
   }
 });
 

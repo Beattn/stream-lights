@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import CustomEffectBuilder, { type EffectStep } from "@/components/custom-effect-builder";
+import AudioClipPicker from "@/components/audio-clip-picker";
 
 const EFFECTS = ["solid", "strobe", "pulse", "rainbow", "fade", "police", "custom"];
 
@@ -152,12 +153,15 @@ function AddCommandModal() {
   const [customSteps, setCustomSteps] = useState<EffectStep[]>(DEFAULT_STEPS);
   const [audioUrl, setAudioUrl] = useState("");
   const [audioVolume, setAudioVolume] = useState(80);
+  const [audioStartMs, setAudioStartMs] = useState(0);
+  const [audioEndMs, setAudioEndMs] = useState<number | null>(null);
 
   const reset = () => {
     setName(""); setCommand(""); setColor("#FF00FF");
     setBrightness(100); setDurationMs(5000); setEffect("rainbow");
     setCooldownSeconds(30); setCustomSteps(DEFAULT_STEPS);
     setAudioUrl(""); setAudioVolume(80);
+    setAudioStartMs(0); setAudioEndMs(null);
   };
 
   const handleSave = () => {
@@ -168,7 +172,7 @@ function AddCommandModal() {
         durationMs: effect === "custom" ? totalCustomMs : durationMs,
         effect, enabled: true, cooldownSeconds,
         customSteps: effect === "custom" ? JSON.stringify(customSteps) : "[]",
-        ...(audioUrl ? { audioUrl, audioVolume } : {}),
+        ...(audioUrl ? { audioUrl, audioVolume, audioStartMs, audioEndMs } : {}),
       } as any
     }, {
       onSuccess: () => {
@@ -258,23 +262,34 @@ function AddCommandModal() {
               <Label className="text-xs text-muted-foreground">URL — supports .mp3, .wav or any direct audio link</Label>
               <Input
                 value={audioUrl}
-                onChange={e => setAudioUrl(e.target.value)}
+                onChange={e => { setAudioUrl(e.target.value); setAudioStartMs(0); setAudioEndMs(null); }}
                 placeholder="https://example.com/sound.mp3"
                 className="text-sm"
               />
             </div>
             {audioUrl && (
-              <div className="grid gap-2">
-                <Label className="text-xs text-muted-foreground">Volume ({audioVolume}%)</Label>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  value={audioVolume}
-                  onChange={e => setAudioVolume(Number(e.target.value))}
-                  className="w-full accent-primary"
-                />
-              </div>
+              <>
+                <div className="grid gap-2">
+                  <Label className="text-xs text-muted-foreground">Volume ({audioVolume}%)</Label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={audioVolume}
+                    onChange={e => setAudioVolume(Number(e.target.value))}
+                    className="w-full accent-primary"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-xs text-muted-foreground">Clip — drag the handles to choose which part plays</Label>
+                  <AudioClipPicker
+                    url={audioUrl}
+                    startMs={audioStartMs}
+                    endMs={audioEndMs}
+                    onChange={(s, e) => { setAudioStartMs(s); setAudioEndMs(e); }}
+                  />
+                </div>
+              </>
             )}
           </div>
         </div>

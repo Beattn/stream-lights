@@ -20,6 +20,8 @@ interface Trigger {
   audioUrl?: string | null;
   audioFile?: string | null;
   audioVolume?: number;
+  audioStartMs?: number | null;
+  audioEndMs?: number | null;
 }
 
 interface Settings {
@@ -49,6 +51,8 @@ interface Command {
   audioUrl?: string | null;
   audioFile?: string | null;
   audioVolume?: number;
+  audioStartMs?: number | null;
+  audioEndMs?: number | null;
 }
 
 type StatusCallback = (status: AgentStatus) => void;
@@ -96,7 +100,12 @@ class AlertQueue {
       // This ensures audio starts immediately without blocking other operations
       if (item.params.audioUrl) {
         // Fire and forget - don't await
-        audioPlayer.play({ url: item.params.audioUrl, volume: item.params.audioVolume ?? 100 }).catch(() => {
+        audioPlayer.play({
+          url: item.params.audioUrl,
+          volume: item.params.audioVolume ?? 100,
+          startMs: item.params.audioStartMs ?? 0,
+          endMs: item.params.audioEndMs ?? undefined,
+        }).catch(() => {
           // Silently handle audio errors to not block alert processing
         });
       }

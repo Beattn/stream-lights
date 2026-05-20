@@ -18,6 +18,8 @@ export const triggersTable = pgTable("triggers", {
   audioUrl: text("audio_url"),
   audioFile: text("audio_file"),
   audioVolume: integer("audio_volume").default(100),
+  audioStartMs: integer("audio_start_ms").default(0),
+  audioEndMs: integer("audio_end_ms"),
   customSteps: text("custom_steps").default("[]"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

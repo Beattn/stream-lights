@@ -22,6 +22,8 @@ export interface LightParams {
   durationMs: number;
   audioUrl?: string;
   audioVolume?: number;
+  audioStartMs?: number | null;
+  audioEndMs?: number | null;
   customSteps?: EffectStep[];
 }
 
