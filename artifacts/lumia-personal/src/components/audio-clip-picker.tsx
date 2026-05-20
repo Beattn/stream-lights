@@ -125,7 +125,6 @@ export default function AudioClipPicker({ url, startMs, endMs, onChange }: Props
 
     setLoadState("loading");
     const audio = new Audio();
-    audio.crossOrigin = "anonymous";
     audio.preload = "metadata";
 
     const onMeta = () => {
