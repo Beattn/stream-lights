@@ -52,10 +52,12 @@ let currentStatus: AgentStatus | null = null;
 let config: Config | null = null;
 
 // ─── Dashboard window ─────────────────────────────────────────────────────────
-function openDashboardWindow(): void {
-  const url = config?.dashboardUrl || DEFAULT_DASHBOARD_URL;
+function openDashboardWindow(urlOverride?: string): void {
+  const url = urlOverride ?? config?.dashboardUrl ?? DEFAULT_DASHBOARD_URL;
 
   if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+    // If we have a new URL with tokens, navigate to it so the session is set
+    if (urlOverride) dashboardWindow.loadURL(url);
     dashboardWindow.show();
     dashboardWindow.focus();
     return;
@@ -153,8 +155,10 @@ function openSetupWindow(): void {
 
   setupWindow = new BrowserWindow({
     width: 460,
-    height: 560,
-    resizable: false,
+    height: 580,
+    minWidth: 400,
+    minHeight: 520,
+    resizable: true,
     frame: false,
     transparent: true,
     title: "Stream Lights — Sign In",
@@ -191,7 +195,7 @@ ipcMain.handle("save-config", async (_event, newConfig: Config) => {
     const { createClient } = await import("@supabase/supabase-js");
     const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
 
-    const { error: authError } = await sb.auth.signInWithPassword({
+    const { data: signInData, error: authError } = await sb.auth.signInWithPassword({
       email: newConfig.email,
       password: newConfig.password,
     });
@@ -211,9 +215,16 @@ ipcMain.handle("save-config", async (_event, newConfig: Config) => {
     updateTray();
     notify("Stream Lights", "Agent connected and running!");
 
-    // Open the dashboard after signing in
+    // Build dashboard URL with session tokens so the web app logs in automatically
+    // (no second login needed — Supabase detects the hash params and sets the session)
+    const dashBase = saved.dashboardUrl;
+    const session = signInData?.session;
+    const dashUrl = session
+      ? `${dashBase}#access_token=${session.access_token}&refresh_token=${session.refresh_token}&type=login`
+      : dashBase;
+
     if (setupWindow && !setupWindow.isDestroyed()) setupWindow.close();
-    openDashboardWindow();
+    openDashboardWindow(dashUrl);
 
     return { success: true };
   } catch (err) {
@@ -222,21 +233,27 @@ ipcMain.handle("save-config", async (_event, newConfig: Config) => {
 });
 
 // ─── Start with saved credentials ─────────────────────────────────────────────
-async function startWithSavedConfig(cfg: Config): Promise<boolean> {
+async function startWithSavedConfig(cfg: Config): Promise<string | null> {
   try {
     const { createClient } = await import("@supabase/supabase-js");
     const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
 
-    const { error: authError } = await sb.auth.signInWithPassword({
+    const { data: signInData, error: authError } = await sb.auth.signInWithPassword({
       email: cfg.email,
       password: cfg.password,
     });
     if (authError) throw new Error(authError.message);
 
     await agent.start(SUPABASE_URL, SUPABASE_KEY, (status) => updateTray(status));
-    return true;
+
+    // Return dashboard URL with session tokens for auto-login
+    const dashBase = cfg.dashboardUrl || DEFAULT_DASHBOARD_URL;
+    const session = signInData?.session;
+    return session
+      ? `${dashBase}#access_token=${session.access_token}&refresh_token=${session.refresh_token}&type=login`
+      : dashBase;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -256,12 +273,12 @@ app.whenReady().then(async () => {
   config = loadConfig();
 
   if (config?.email && config?.password) {
-    const ok = await startWithSavedConfig(config);
-    if (ok) {
+    const dashUrl = await startWithSavedConfig(config);
+    if (dashUrl) {
       notify("Stream Lights", "Agent started — controlling your lights!");
       updateTray();
-      // Auto-open the dashboard on launch
-      openDashboardWindow();
+      // Auto-open the dashboard, already signed in via token in URL
+      openDashboardWindow(dashUrl);
     } else {
       console.error("[Main] Saved credentials rejected, opening setup.");
       updateTray();
