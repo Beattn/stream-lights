@@ -6,9 +6,9 @@ import { z } from "zod";
 import {
   parseId, nameSchema, hexColorSchema, effectSchema,
   platformSchema, eventTypeSchema,
-} from "../lib/security.js";
-import { alertQueue } from "../lib/alert-queue.js";
-import { writeLimiter } from "../middlewares/rate-limit.js";
+} from "../lib/security";
+import { alertQueue } from "../lib/alert-queue";
+import { writeLimiter } from "../middlewares/rate-limit";
 
 const router = Router();
 

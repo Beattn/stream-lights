@@ -33,8 +33,8 @@ export default defineConfig({
         },
       },
     },
-    // Enable minification for smaller bundle
-    minify: "terser",
+    // Use default esbuild minification (no external dependency needed)
+    minify: true,
     // Optimize chunk sizes
     chunkSizeWarningLimit: 500,
   },

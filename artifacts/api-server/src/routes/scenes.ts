@@ -3,9 +3,9 @@ import { db } from "@workspace/db";
 import { devicesTable, settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { hexColorSchema, effectSchema, nameSchema } from "../lib/security.js";
-import { fireLights } from "../lib/light-engine.js";
-import { writeLimiter } from "../middlewares/rate-limit.js";
+import { hexColorSchema, effectSchema, nameSchema } from "../lib/security";
+import { fireLights } from "../lib/light-engine";
+import { writeLimiter } from "../middlewares/rate-limit";
 
 const router = Router();
 

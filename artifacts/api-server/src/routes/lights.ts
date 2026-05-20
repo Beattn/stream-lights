@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { z } from "zod";
-import { hexColorSchema, effectSchema } from "../lib/security.js";
-import { alertQueue } from "../lib/alert-queue.js";
-import { returnToIdle } from "../lib/light-engine.js";
-import { writeLimiter } from "../middlewares/rate-limit.js";
+import { hexColorSchema, effectSchema } from "../lib/security";
+import { alertQueue } from "../lib/alert-queue";
+import { returnToIdle } from "../lib/light-engine";
+import { writeLimiter } from "../middlewares/rate-limit";
 import { db } from "@workspace/db";
 import { activityTable } from "@workspace/db";
 

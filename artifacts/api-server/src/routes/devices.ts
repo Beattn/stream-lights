@@ -3,9 +3,9 @@ import { db } from "@workspace/db";
 import { devicesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { parseId, nameSchema, hexColorSchema, effectSchema, omitKeys } from "../lib/security.js";
-import { alertQueue } from "../lib/alert-queue.js";
-import { writeLimiter } from "../middlewares/rate-limit.js";
+import { parseId, nameSchema, hexColorSchema, effectSchema, omitKeys } from "../lib/security";
+import { alertQueue } from "../lib/alert-queue";
+import { writeLimiter } from "../middlewares/rate-limit";
 
 const router = Router();
 
