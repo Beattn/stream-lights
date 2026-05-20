@@ -3,11 +3,11 @@ import path from "path";
 import fs from "fs";
 import { agent, type AgentStatus } from "./agent/index";
 
-// ─── Hardcoded Supabase connection — pre-filled so users never need to enter it ─
+// ─── Hardcoded Supabase connection ─────────────────────────────────────────────
 const SUPABASE_URL = "https://ylivjdmmmgotyctqbvaa.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlsaXZqZG1tbWdvdHljdHFidmFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMjAzMjEsImV4cCI6MjA5NDc5NjMyMX0.YlRRB5kGXXCm03YwOstZd3ZOfDpXAlqhi9SkssHaVBE";
 const DEFAULT_DASHBOARD_URL = "https://stream-lights.vercel.app";
-// ─────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────
 
 const CONFIG_PATH = path.join(app.getPath("userData"), "config.json");
 
@@ -41,30 +41,66 @@ function makeIcon(color: "green" | "yellow" | "red" | "gray"): Electron.NativeIm
 
 let tray: Tray | null = null;
 let setupWindow: BrowserWindow | null = null;
+let dashboardWindow: BrowserWindow | null = null;
 let currentStatus: AgentStatus | null = null;
 let config: Config | null = null;
 
+// ─── Dashboard window ─────────────────────────────────────────────────────────
+function openDashboardWindow(): void {
+  const url = config?.dashboardUrl || DEFAULT_DASHBOARD_URL;
+
+  if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+    dashboardWindow.show();
+    dashboardWindow.focus();
+    return;
+  }
+
+  dashboardWindow = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
+    title: "Stream Lights",
+    autoHideMenuBar: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  dashboardWindow.loadURL(url);
+
+  // Open external links (docs, OAuth popups, etc.) in default browser
+  dashboardWindow.webContents.setWindowOpenHandler(({ url: openUrl }) => {
+    if (!openUrl.startsWith(url)) {
+      shell.openExternal(openUrl);
+      return { action: "deny" };
+    }
+    return { action: "allow" };
+  });
+
+  dashboardWindow.on("closed", () => { dashboardWindow = null; });
+}
+
+// ─── Tray ─────────────────────────────────────────────────────────────────────
 function buildTrayMenu(): Electron.Menu {
   const s = currentStatus;
   const items: Electron.MenuItemConstructorOptions[] = [
-    { label: "⚡ Stream Lights Agent", enabled: false },
+    { label: "⚡ Stream Lights", enabled: false },
     { type: "separator" },
   ];
 
   if (s) {
-    items.push({ label: s.running ? "● Running" : "○ Stopped", enabled: false });
-    items.push({ label: `Kick: ${s.kickConnected ? "✓ Connected" : "✗ Disconnected"}`, enabled: false });
-    items.push({ label: `Twitch: ${s.twitchConnected ? "✓ Connected" : "✗ Disconnected"}`, enabled: false });
-    items.push({ label: `Devices: ${s.devicesCount} | Triggers: ${s.triggersCount}`, enabled: false });
+    items.push({ label: s.running ? "● Agent running" : "○ Agent stopped", enabled: false });
+    items.push({ label: `Kick: ${s.kickConnected ? "✓" : "✗"}   Twitch: ${s.twitchConnected ? "✓" : "✗"}`, enabled: false });
+    items.push({ label: `Devices: ${s.devicesCount}   Triggers: ${s.triggersCount}`, enabled: false });
     if (s.lastEvent) items.push({ label: `Last: ${s.lastEvent.slice(0, 40)}`, enabled: false });
     if (s.errors.length > 0) items.push({ label: `⚠ ${s.errors[s.errors.length - 1]?.slice(0, 40)}`, enabled: false });
   }
 
   items.push({ type: "separator" });
-
-  if (config?.dashboardUrl) {
-    items.push({ label: "Open Dashboard", click: () => shell.openExternal(config!.dashboardUrl) });
-  }
+  items.push({ label: "Open Dashboard", click: () => openDashboardWindow() });
+  items.push({ type: "separator" });
 
   items.push({
     label: "Test Lights (red flash)",
@@ -98,10 +134,11 @@ function updateTray(status?: AgentStatus): void {
   }
 
   tray.setImage(makeIcon(color));
-  tray.setToolTip(`Stream Lights Agent${s?.kickConnected ? " — Kick ✓" : ""}${s?.twitchConnected ? " — Twitch ✓" : ""}`);
+  tray.setToolTip(`Stream Lights${s?.kickConnected ? " — Kick ✓" : ""}${s?.twitchConnected ? " — Twitch ✓" : ""}`);
   tray.setContextMenu(buildTrayMenu());
 }
 
+// ─── Setup window ─────────────────────────────────────────────────────────────
 function openSetupWindow(): void {
   if (setupWindow && !setupWindow.isDestroyed()) {
     setupWindow.focus();
@@ -114,15 +151,13 @@ function openSetupWindow(): void {
     resizable: false,
     frame: false,
     transparent: true,
-    title: "Stream Lights Agent",
-    icon: makeIcon("green"),
+    title: "Stream Lights — Sign In",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
     },
     titleBarStyle: "hidden",
-    vibrancy: "dark",
     backgroundMaterial: "acrylic",
   });
 
@@ -136,7 +171,7 @@ function notify(title: string, body: string): void {
   }
 }
 
-// Return only safe fields to the renderer (never send password back)
+// ─── IPC ──────────────────────────────────────────────────────────────────────
 ipcMain.on("get-config", (event) => {
   event.returnValue = config ? { email: config.email, dashboardUrl: config.dashboardUrl } : {};
 });
@@ -150,7 +185,6 @@ ipcMain.handle("save-config", async (_event, newConfig: Config) => {
     const { createClient } = await import("@supabase/supabase-js");
     const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
 
-    // Authenticate with email + password
     const { error: authError } = await sb.auth.signInWithPassword({
       email: newConfig.email,
       password: newConfig.password,
@@ -171,12 +205,17 @@ ipcMain.handle("save-config", async (_event, newConfig: Config) => {
     updateTray();
     notify("Stream Lights", "Agent connected and running!");
 
+    // Open the dashboard after signing in
+    if (setupWindow && !setupWindow.isDestroyed()) setupWindow.close();
+    openDashboardWindow();
+
     return { success: true };
   } catch (err) {
     return { success: false, error: (err as Error).message };
   }
 });
 
+// ─── Start with saved credentials ─────────────────────────────────────────────
 async function startWithSavedConfig(cfg: Config): Promise<boolean> {
   try {
     const { createClient } = await import("@supabase/supabase-js");
@@ -195,18 +234,18 @@ async function startWithSavedConfig(cfg: Config): Promise<boolean> {
   }
 }
 
+// ─── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
-  app.setAppUserModelId("Stream Lights Agent");
+  app.setAppUserModelId("Stream Lights");
 
   if (process.platform === "darwin") app.dock.hide();
 
   tray = new Tray(makeIcon("gray"));
-  tray.setToolTip("Stream Lights Agent — starting...");
+  tray.setToolTip("Stream Lights — starting...");
   tray.setContextMenu(buildTrayMenu());
-  tray.on("double-click", () => {
-    if (config?.dashboardUrl) shell.openExternal(config.dashboardUrl);
-    else openSetupWindow();
-  });
+
+  // Double-click tray icon → open dashboard
+  tray.on("double-click", () => openDashboardWindow());
 
   config = loadConfig();
 
@@ -214,18 +253,20 @@ app.whenReady().then(async () => {
     const ok = await startWithSavedConfig(config);
     if (ok) {
       notify("Stream Lights", "Agent started — controlling your lights!");
+      updateTray();
+      // Auto-open the dashboard on launch
+      openDashboardWindow();
     } else {
-      // Saved credentials no longer valid — ask user to sign in again
       console.error("[Main] Saved credentials rejected, opening setup.");
       updateTray();
       openSetupWindow();
     }
   } else {
-    // No saved credentials — show sign-in screen
     openSetupWindow();
     updateTray();
   }
 });
 
-app.on("window-all-closed", () => { /* keep running in tray */ });
+app.on("window-all-closed", () => { /* keep running in tray even if all windows closed */ });
 app.on("before-quit", () => agent.stop());
+app.on("activate", () => openDashboardWindow()); // macOS dock click
