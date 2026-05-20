@@ -8,6 +8,12 @@ import { nanoleafApply, nanoleafIdle } from "./nanoleaf";
 import { genericHttpApply, genericHttpIdle } from "./generic-http";
 import { logger } from "../logger";
 
+export interface EffectStep {
+  color: string;
+  durationMs: number;
+  brightness?: number;
+}
+
 export interface LightParams {
   color: string;
   brightness: number;
@@ -15,6 +21,7 @@ export interface LightParams {
   durationMs: number;
   audioUrl?: string;
   audioVolume?: number;
+  customSteps?: EffectStep[];
 }
 
 export interface FireOptions {
@@ -46,19 +53,37 @@ async function getSettings() {
   };
 }
 
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+async function applyRaw(device: typeof devicesTable.$inferSelect, params: LightParams): Promise<void> {
+  switch (device.type) {
+    case "philips_hue": await philipsHueApply(device, params); break;
+    case "lifx": await lifxApply(device, params); break;
+    case "govee": await goveeApply(device, params); break;
+    case "nanoleaf": await nanoleafApply(device, params); break;
+    case "generic_http": await genericHttpApply(device, params); break;
+    default:
+      logger.warn({ deviceType: device.type }, "Unknown device type — skipping");
+  }
+}
+
 async function applyToDevice(
   device: typeof devicesTable.$inferSelect,
   params: LightParams
 ): Promise<void> {
   try {
-    switch (device.type) {
-      case "philips_hue": await philipsHueApply(device, params); break;
-      case "lifx": await lifxApply(device, params); break;
-      case "govee": await goveeApply(device, params); break;
-      case "nanoleaf": await nanoleafApply(device, params); break;
-      case "generic_http": await genericHttpApply(device, params); break;
-      default:
-        logger.warn({ deviceType: device.type }, "Unknown device type — skipping");
+    if (params.effect === "custom" && params.customSteps && params.customSteps.length > 0) {
+      for (const step of params.customSteps) {
+        await applyRaw(device, {
+          ...params,
+          color: step.color,
+          brightness: step.brightness ?? params.brightness,
+          effect: "solid",
+        });
+        await sleep(step.durationMs);
+      }
+    } else {
+      await applyRaw(device, params);
     }
     await db.update(devicesTable).set({ currentColor: params.color, brightness: params.brightness }).where(eq(devicesTable.id, device.id));
   } catch (err) {
@@ -108,12 +133,16 @@ export async function fireLights(params: LightParams, opts: FireOptions = {}): P
   }
 
   if (opts.returnToIdle !== false && settings.idleEnabled) {
+    const effectDurationMs =
+      params.effect === "custom" && params.customSteps?.length
+        ? params.customSteps.reduce((sum, s) => sum + s.durationMs, 0)
+        : params.durationMs;
     setTimeout(async () => {
       const freshDevices = await getEnabledDevices(opts.deviceIds);
       await Promise.allSettled(
         freshDevices.map((d) => returnToIdleForDevice(d, settings.idleColor, settings.idleBrightness))
       );
-    }, params.durationMs);
+    }, effectDurationMs);
   }
 }
 

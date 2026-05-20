@@ -149,6 +149,9 @@ router.post("/triggers/:id/fire", writeLimiter, async (req, res) => {
     let deviceIds: number[] = [];
     try { deviceIds = JSON.parse(trigger.deviceIds) as number[]; } catch { deviceIds = []; }
 
+    let triggerCustomSteps: Array<{ color: string; durationMs: number; brightness?: number }> = [];
+    try { triggerCustomSteps = JSON.parse(trigger.customSteps ?? "[]"); } catch { triggerCustomSteps = []; }
+
     alertQueue.enqueue(
       { 
         color: trigger.color, 
@@ -157,6 +160,7 @@ router.post("/triggers/:id/fire", writeLimiter, async (req, res) => {
         durationMs: trigger.durationMs,
         audioUrl: trigger.audioUrl ?? undefined,
         audioVolume: trigger.audioVolume ?? 100,
+        ...(triggerCustomSteps.length > 0 ? { customSteps: triggerCustomSteps } : {}),
       },
       {
         deviceIds: deviceIds.length > 0 ? deviceIds : undefined,

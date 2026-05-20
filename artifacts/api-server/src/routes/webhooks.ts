@@ -110,9 +110,14 @@ async function matchAndFireTriggers(
   for (const trigger of matching) {
     let deviceIds: number[] = [];
     try { deviceIds = JSON.parse(trigger.deviceIds) as number[]; } catch { deviceIds = []; }
+    let customSteps: Array<{ color: string; durationMs: number; brightness?: number }> = [];
+    try { customSteps = JSON.parse(trigger.customSteps ?? "[]"); } catch { customSteps = []; }
 
     alertQueue.enqueue(
-      { color: trigger.color, brightness: trigger.brightness, effect: trigger.effect, durationMs: trigger.durationMs },
+      {
+        color: trigger.color, brightness: trigger.brightness, effect: trigger.effect, durationMs: trigger.durationMs,
+        ...(customSteps.length > 0 ? { customSteps } : {}),
+      },
       { deviceIds: deviceIds.length > 0 ? deviceIds : undefined, returnToIdle: trigger.returnToIdle, eventType, platform, username, message }
     );
   }

@@ -45,6 +45,7 @@ router.post("/commands", writeLimiter, async (req, res) => {
       audioUrl: z.string().url().optional(),
       audioFile: z.string().optional(),
       audioVolume: z.number().int().min(0).max(100).optional(),
+      customSteps: z.string().optional(),
     }).strict().parse(req.body);
 
     const normalized = body.command.startsWith("!") ? body.command : `!${body.command}`;
@@ -61,6 +62,7 @@ router.post("/commands", writeLimiter, async (req, res) => {
       audioUrl: body.audioUrl ?? null,
       audioFile: body.audioFile ?? null,
       audioVolume: body.audioVolume ?? 100,
+      customSteps: body.customSteps ?? "[]",
     }).returning();
 
     res.status(201).json(serializeCommand(command));
@@ -85,6 +87,7 @@ router.patch("/commands/:id", writeLimiter, async (req, res) => {
       audioUrl: z.string().url().optional(),
       audioFile: z.string().optional(),
       audioVolume: z.number().int().min(0).max(100).optional(),
+      customSteps: z.string().optional(),
     }).strict().parse(req.body);
 
     const updateData: Record<string, unknown> = { ...body };

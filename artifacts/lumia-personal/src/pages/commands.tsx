@@ -9,8 +9,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import CustomEffectBuilder, { type EffectStep } from "@/components/custom-effect-builder";
 
-const EFFECTS = ["solid", "strobe", "pulse", "rainbow", "fade", "police"];
+const EFFECTS = ["solid", "strobe", "pulse", "rainbow", "fade", "police", "custom"];
+
+const DEFAULT_STEPS: EffectStep[] = [
+  { color: "#ff00ff", durationMs: 500 },
+  { color: "#00ffff", durationMs: 500 },
+];
 
 export default function Commands() {
   const { data: commands, isLoading } = useListCommands();
@@ -35,7 +41,7 @@ export default function Commands() {
             <AddCommandModal />
           </div>
         )}
-        {commands?.map((cmd) => (
+        {commands?.map((cmd: any) => (
           <CommandRow key={cmd.id} command={cmd} />
         ))}
       </div>
@@ -47,6 +53,9 @@ function CommandRow({ command }: { command: any }) {
   const update = useUpdateCommand();
   const deleteCmd = useDeleteCommand();
   const { toast } = useToast();
+
+  let customSteps: EffectStep[] = [];
+  try { customSteps = JSON.parse(command.customSteps ?? "[]"); } catch {}
 
   const handleToggle = () => {
     update.mutate({ id: command.id, data: { enabled: !command.enabled } }, {
@@ -65,12 +74,20 @@ function CommandRow({ command }: { command: any }) {
   return (
     <Card className={`border-border bg-card transition-all ${!command.enabled ? "opacity-50" : ""}`}>
       <CardContent className="p-4 flex items-center gap-4">
-        <div
-          className="w-10 h-10 rounded-md shrink-0 flex items-center justify-center font-mono text-xs font-bold"
-          style={{ backgroundColor: command.color + "22", border: `1px solid ${command.color}55`, color: command.color }}
-        >
-          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: command.color, boxShadow: `0 0 8px ${command.color}` }} />
-        </div>
+        {command.effect === "custom" && customSteps.length > 0 ? (
+          <div className="w-10 h-10 rounded-md shrink-0 overflow-hidden flex border border-border/50">
+            {customSteps.map((s: EffectStep, i: number) => (
+              <div key={i} className="h-full flex-1" style={{ backgroundColor: s.color }} />
+            ))}
+          </div>
+        ) : (
+          <div
+            className="w-10 h-10 rounded-md shrink-0 flex items-center justify-center"
+            style={{ backgroundColor: command.color + "22", border: `1px solid ${command.color}55` }}
+          >
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: command.color, boxShadow: `0 0 8px ${command.color}` }} />
+          </div>
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3">
             <span className="font-mono font-bold text-primary text-lg">{command.command}</span>
@@ -78,10 +95,17 @@ function CommandRow({ command }: { command: any }) {
           </div>
           <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3">
             <span className="capitalize">{command.effect}</span>
+            {command.effect === "custom" && customSteps.length > 0 && (
+              <span>({customSteps.length} steps)</span>
+            )}
             <span>·</span>
             <span>{command.brightness}% brightness</span>
             <span>·</span>
-            <span>{(command.durationMs / 1000).toFixed(1)}s</span>
+            <span>
+              {command.effect === "custom" && customSteps.length > 0
+                ? `${(customSteps.reduce((s: number, st: EffectStep) => s + st.durationMs, 0) / 1000).toFixed(1)}s`
+                : `${(command.durationMs / 1000).toFixed(1)}s`}
+            </span>
             <span>·</span>
             <span>Cooldown: {command.cooldownSeconds}s</span>
             {command.usageCount > 0 && (
@@ -120,16 +144,24 @@ function AddCommandModal() {
   const [durationMs, setDurationMs] = useState(5000);
   const [effect, setEffect] = useState("rainbow");
   const [cooldownSeconds, setCooldownSeconds] = useState(30);
+  const [customSteps, setCustomSteps] = useState<EffectStep[]>(DEFAULT_STEPS);
 
   const handleSave = () => {
+    const totalCustomMs = customSteps.reduce((s, st) => s + st.durationMs, 0);
     create.mutate({
-      data: { name, command, color, brightness, durationMs, effect, enabled: true, cooldownSeconds }
+      data: {
+        name, command, color, brightness,
+        durationMs: effect === "custom" ? totalCustomMs : durationMs,
+        effect, enabled: true, cooldownSeconds,
+        customSteps: effect === "custom" ? JSON.stringify(customSteps) : "[]",
+      }
     }, {
       onSuccess: () => {
         toast({ title: "Command created!" });
         setOpen(false);
         setName(""); setCommand(""); setColor("#FF00FF");
-        setBrightness(100); setDurationMs(5000); setEffect("rainbow"); setCooldownSeconds(30);
+        setBrightness(100); setDurationMs(5000); setEffect("rainbow");
+        setCooldownSeconds(30); setCustomSteps(DEFAULT_STEPS);
       },
       onError: () => toast({ title: "Failed to create command", variant: "destructive" }),
     });
@@ -143,7 +175,7 @@ function AddCommandModal() {
           Add Command
         </Button>
       </DialogTrigger>
-      <DialogContent className="bg-card border-border sm:max-w-lg">
+      <DialogContent className="bg-card border-border sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>New Chat Command</DialogTitle>
         </DialogHeader>
@@ -158,25 +190,40 @@ function AddCommandModal() {
               <Input value={command} onChange={e => setCommand(e.target.value)} placeholder="!party" className="font-mono" />
             </div>
           </div>
-          <div className="grid gap-2">
-            <Label>Light Color</Label>
-            <div className="flex gap-3">
-              <input type="color" value={color} onChange={e => setColor(e.target.value)} className="w-14 h-10 rounded-md border border-input cursor-pointer p-1 bg-background" />
-              <Input value={color} onChange={e => setColor(e.target.value)} className="font-mono uppercase" />
-            </div>
-          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-2">
               <Label>Effect</Label>
               <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={effect} onChange={e => setEffect(e.target.value)}>
-                {EFFECTS.map(ef => <option key={ef} value={ef}>{ef}</option>)}
+                {EFFECTS.map(ef => (
+                  <option key={ef} value={ef}>{ef === "custom" ? "✦ Custom Sequence" : ef}</option>
+                ))}
               </select>
             </div>
-            <div className="grid gap-2">
-              <Label>Duration (ms)</Label>
-              <Input type="number" value={durationMs} onChange={e => setDurationMs(Number(e.target.value))} min={500} step={500} />
-            </div>
+            {effect !== "custom" && (
+              <div className="grid gap-2">
+                <Label>Duration (ms)</Label>
+                <Input type="number" value={durationMs} onChange={e => setDurationMs(Number(e.target.value))} min={500} step={500} />
+              </div>
+            )}
           </div>
+
+          {effect === "custom" ? (
+            <div className="grid gap-2">
+              <Label>Light Sequence</Label>
+              <p className="text-xs text-muted-foreground -mt-1">Paint the steps your lights will play in order.</p>
+              <CustomEffectBuilder steps={customSteps} onChange={setCustomSteps} globalBrightness={brightness} />
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              <Label>Light Color</Label>
+              <div className="flex gap-3">
+                <input type="color" value={color} onChange={e => setColor(e.target.value)} className="w-14 h-10 rounded-md border border-input cursor-pointer p-1 bg-background" />
+                <Input value={color} onChange={e => setColor(e.target.value)} className="font-mono uppercase" />
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-2">
               <Label>Brightness ({brightness}%)</Label>
@@ -190,7 +237,9 @@ function AddCommandModal() {
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button onClick={handleSave} disabled={create.isPending || !name || !command}>Create Command</Button>
+          <Button onClick={handleSave} disabled={create.isPending || !name || !command || (effect === "custom" && customSteps.length === 0)}>
+            Create Command
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const VALID_EFFECTS = ["solid", "strobe", "pulse", "rainbow", "fade", "police"] as const;
+export const VALID_EFFECTS = ["solid", "strobe", "pulse", "rainbow", "fade", "police", "custom"] as const;
 export const VALID_PLATFORMS = ["twitch", "youtube", "kick", "streamlabs", "streamelements"] as const;
 export const VALID_EVENT_TYPES = [
   "follow", "subscribe", "bits", "donation", "raid", "host",
