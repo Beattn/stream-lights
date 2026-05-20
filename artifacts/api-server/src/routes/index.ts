@@ -1,16 +1,16 @@
 import { Router, type IRouter } from "express";
-import healthRouter from "./health.js";
-import devicesRouter from "./devices.js";
-import platformsRouter from "./platforms.js";
-import triggersRouter from "./triggers.js";
-import commandsRouter from "./commands.js";
-import activityRouter from "./activity.js";
-import lightsRouter from "./lights.js";
-import dashboardRouter from "./dashboard.js";
-import settingsRouter from "./settings.js";
-import scenesRouter from "./scenes.js";
-import webhooksRouter from "./webhooks.js";
-import { requireAuth } from "../middlewares/auth.js";
+import healthRouter from "./health";
+import devicesRouter from "./devices";
+import platformsRouter from "./platforms";
+import triggersRouter from "./triggers";
+import commandsRouter from "./commands";
+import activityRouter from "./activity";
+import lightsRouter from "./lights";
+import dashboardRouter from "./dashboard";
+import settingsRouter from "./settings";
+import scenesRouter from "./scenes";
+import webhooksRouter from "./webhooks";
+import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
 

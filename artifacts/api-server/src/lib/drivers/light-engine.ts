@@ -1,12 +1,12 @@
 import { db } from "@workspace/db";
 import { devicesTable, settingsTable, activityTable } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
-import { philipsHueApply, philipsHueIdle } from "./drivers/philips-hue.js";
-import { lifxApply, lifxIdle } from "./drivers/lifx.js";
-import { goveeApply, goveeIdle } from "./drivers/govee.js";
-import { nanoleafApply, nanoleafIdle } from "./drivers/nanoleaf.js";
-import { genericHttpApply, genericHttpIdle } from "./drivers/generic-http.js";
-import { logger } from "./logger.js";
+import { philipsHueApply, philipsHueIdle } from "./drivers/philips-hue";
+import { lifxApply, lifxIdle } from "./drivers/lifx";
+import { goveeApply, goveeIdle } from "./drivers/govee";
+import { nanoleafApply, nanoleafIdle } from "./drivers/nanoleaf";
+import { genericHttpApply, genericHttpIdle } from "./drivers/generic-http";
+import { logger } from "./logger";
 
 export interface LightParams {
   color: string;

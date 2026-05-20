@@ -1,5 +1,5 @@
-import { fireLights, type LightParams, type FireOptions } from "./light-engine.js";
-import { logger } from "./logger.js";
+import { fireLights, type LightParams, type FireOptions } from "./light-engine";
+import { logger } from "./logger";
 
 interface QueuedAlert {
   params: LightParams;

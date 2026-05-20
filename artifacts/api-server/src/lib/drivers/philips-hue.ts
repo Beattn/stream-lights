@@ -1,5 +1,5 @@
 import type { Device } from "@workspace/db";
-import type { LightParams } from "../light-engine.js";
+import type { LightParams } from "../light-engine";
 
 function hexToXY(hex: string): [number, number] {
   const r = parseInt(hex.slice(1, 3), 16) / 255;
