@@ -4,6 +4,7 @@ import { triggersTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { alertQueue } from "../lib/drivers/alert-queue";
 import { logger } from "../lib/logger";
+import { requireAuth } from "../middlewares/auth";
 import crypto from "crypto";
 
 const router = Router();
@@ -163,7 +164,7 @@ router.post("/webhooks/:platform", async (req, res) => {
   res.json({ ok: true, platform, eventType: parsed.eventType, triggersMatched: fired });
 });
 
-router.post("/webhooks/:platform/test", async (req, res) => {
+router.post("/webhooks/:platform/test", requireAuth, async (req, res) => {
   const platform = req.params.platform;
   const { eventType = "follow", username = "testuser", message = "Test event", amount } = req.body as Record<string, unknown>;
 

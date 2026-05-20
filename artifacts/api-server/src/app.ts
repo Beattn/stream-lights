@@ -10,7 +10,7 @@ const app: Express = express();
 
 const allowedOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim())
-  : true;
+  : false;
 
 app.set("trust proxy", 1);
 app.disable("x-powered-by");

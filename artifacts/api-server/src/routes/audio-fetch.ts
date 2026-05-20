@@ -9,6 +9,17 @@ const router = Router();
 
 const YOUTUBE_REGEX = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/)|youtu\.be\/)/i;
 const Body = z.object({ url: z.string().url() });
+
+const SSRF_BLOCK = /^(localhost|127\.|0\.0\.0\.0|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|::1|fd[0-9a-f]{2}:)/i;
+
+function isSafeUrl(raw: string): boolean {
+  try {
+    const { hostname } = new URL(raw);
+    return !SSRF_BLOCK.test(hostname);
+  } catch {
+    return false;
+  }
+}
 const AUDIO_BUCKET = process.env.SUPABASE_AUDIO_BUCKET ?? "audio";
 const DOWNLOAD_TIMEOUT_MS = 25_000;
 
@@ -43,6 +54,11 @@ router.post("/audio/fetch", writeLimiter, async (req: Request, res: Response) =>
   }
 
   const { url } = parsed.data;
+
+  if (!isSafeUrl(url)) {
+    res.status(400).json({ error: "URL is not allowed." });
+    return;
+  }
 
   // ── YouTube: delegate to desktop agent via job queue ────────────────────
   if (YOUTUBE_REGEX.test(url)) {

@@ -20,13 +20,14 @@ import { requireAuth } from "../middlewares/auth";
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(webhooksRouter);
+
+router.use(requireAuth);
+
 router.use(storageRouter);
 router.use(audioUploadRouter);
 router.use(audioFetchRouter);
 router.use(audioJobsRouter);
-router.use(webhooksRouter);
-
-router.use(requireAuth);
 
 router.use(devicesRouter);
 router.use(platformsRouter);
