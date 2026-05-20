@@ -2,7 +2,7 @@ import { useState } from "react";
 import {
   useListCommands, useCreateCommand, useUpdateCommand, useDeleteCommand,
 } from "@workspace/api-client-react";
-import { Terminal, Plus, Trash2, ToggleLeft, ToggleRight, Music } from "lucide-react";
+import { Terminal, Plus, Trash2, ToggleLeft, ToggleRight, Music, FlaskConical } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -13,6 +13,8 @@ import CustomEffectBuilder, { type EffectStep } from "@/components/custom-effect
 import AudioClipPicker from "@/components/audio-clip-picker";
 import AudioUploadButton from "@/components/audio-upload-button";
 import AudioFetchButton, { isNonAudioUrl } from "@/components/audio-fetch-button";
+import { apiUrl } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 
 const EFFECTS = ["solid", "strobe", "pulse", "rainbow", "fade", "police", "custom"];
 
@@ -20,6 +22,26 @@ const DEFAULT_STEPS: EffectStep[] = [
   { color: "#ff00ff", durationMs: 500, effect: "solid" },
   { color: "#00ffff", durationMs: 500, effect: "solid" },
 ];
+
+async function firePreview(params: {
+  color: string;
+  brightness: number;
+  effect: string;
+  durationMs: number;
+  customSteps?: EffectStep[];
+}): Promise<boolean> {
+  let authHeader = "";
+  if (supabase) {
+    const { data } = await supabase.auth.getSession();
+    if (data.session?.access_token) authHeader = `Bearer ${data.session.access_token}`;
+  }
+  const resp = await fetch(apiUrl("/preview-effect"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(authHeader ? { Authorization: authHeader } : {}) },
+    body: JSON.stringify(params),
+  });
+  return resp.ok;
+}
 
 export default function Commands() {
   const { data: commands, isLoading } = useListCommands();
@@ -157,6 +179,7 @@ function AddCommandModal() {
   const [audioVolume, setAudioVolume] = useState(80);
   const [audioStartMs, setAudioStartMs] = useState(0);
   const [audioEndMs, setAudioEndMs] = useState<number | null>(null);
+  const [testing, setTesting] = useState(false);
 
   const reset = () => {
     setName(""); setCommand(""); setColor("#FF00FF");
@@ -166,8 +189,27 @@ function AddCommandModal() {
     setAudioStartMs(0); setAudioEndMs(null);
   };
 
+  const totalCustomMs = customSteps.reduce((s, st) => s + st.durationMs, 0);
+
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const ok = await firePreview({
+        color,
+        brightness,
+        effect,
+        durationMs: effect === "custom" ? totalCustomMs : durationMs,
+        customSteps: effect === "custom" ? customSteps : [],
+      });
+      if (ok) toast({ title: "Effect fired — check your lights!" });
+      else toast({ title: "Test failed — is the desktop agent running?", variant: "destructive" });
+    } catch {
+      toast({ title: "Could not reach the API", variant: "destructive" });
+    }
+    setTesting(false);
+  };
+
   const handleSave = () => {
-    const totalCustomMs = customSteps.reduce((s, st) => s + st.durationMs, 0);
     create.mutate({
       data: {
         name, command, color, brightness,
@@ -230,7 +272,9 @@ function AddCommandModal() {
           {effect === "custom" ? (
             <div className="grid gap-2">
               <Label>Light Sequence</Label>
-              <p className="text-xs text-muted-foreground -mt-1">Paint the steps your lights will play in order. Set color, duration, brightness and movement per step.</p>
+              <p className="text-xs text-muted-foreground -mt-1">
+                Click a segment on the timeline to select and edit it. Drag to reorder with ↑↓ buttons.
+              </p>
               <CustomEffectBuilder steps={customSteps} onChange={setCustomSteps} globalBrightness={brightness} />
             </div>
           ) : (
@@ -254,7 +298,6 @@ function AddCommandModal() {
             </div>
           </div>
 
-          {/* Audio section */}
           <div className="border border-border/60 rounded-lg p-3 space-y-3 bg-muted/20">
             <div className="flex items-center gap-2">
               <Music className="w-4 h-4 text-muted-foreground" />
@@ -272,39 +315,35 @@ function AddCommandModal() {
                 <AudioUploadButton onUploaded={url => { setAudioUrl(url); setAudioStartMs(0); setAudioEndMs(null); }} />
               </div>
               {isNonAudioUrl(audioUrl) && (
-                <AudioFetchButton
-                  url={audioUrl}
-                  onFetched={url => { setAudioUrl(url); setAudioStartMs(0); setAudioEndMs(null); }}
-                />
+                <AudioFetchButton url={audioUrl} onFetched={url => { setAudioUrl(url); setAudioStartMs(0); setAudioEndMs(null); }} />
               )}
             </div>
             {audioUrl && (
               <>
                 <div className="grid gap-2">
                   <Label className="text-xs text-muted-foreground">Volume ({audioVolume}%)</Label>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={audioVolume}
-                    onChange={e => setAudioVolume(Number(e.target.value))}
-                    className="w-full accent-primary"
-                  />
+                  <input type="range" min={0} max={100} value={audioVolume} onChange={e => setAudioVolume(Number(e.target.value))} className="w-full accent-primary" />
                 </div>
                 <div className="grid gap-2">
                   <Label className="text-xs text-muted-foreground">Clip — drag the handles to choose which part plays</Label>
-                  <AudioClipPicker
-                    url={audioUrl}
-                    startMs={audioStartMs}
-                    endMs={audioEndMs}
-                    onChange={(s, e) => { setAudioStartMs(s); setAudioEndMs(e); }}
-                  />
+                  <AudioClipPicker url={audioUrl} startMs={audioStartMs} endMs={audioEndMs} onChange={(s, e) => { setAudioStartMs(s); setAudioEndMs(e); }} />
                 </div>
               </>
             )}
           </div>
         </div>
-        <div className="flex justify-end gap-2">
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleTest}
+            disabled={testing || (effect === "custom" && customSteps.length === 0)}
+            className="gap-2 mr-auto"
+          >
+            <FlaskConical className="w-4 h-4" />
+            {testing ? "Testing…" : "Test on lights"}
+          </Button>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
           <Button onClick={handleSave} disabled={create.isPending || !name || !command || (effect === "custom" && customSteps.length === 0)}>
             Create Command

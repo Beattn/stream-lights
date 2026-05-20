@@ -92,14 +92,19 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 export async function applyLight(device: Device, params: LightParams): Promise<void> {
   if (params.effect === "custom" && params.customSteps && params.customSteps.length > 0) {
     for (const step of params.customSteps) {
+      const stepEffect = (step as { effect?: string }).effect ?? "solid";
       await applyLight(device, {
         ...params,
         color: step.color,
         brightness: step.brightness ?? params.brightness,
-        effect: "solid",
+        effect: stepEffect,
         durationMs: step.durationMs,
       });
-      await sleep(step.durationMs);
+      // Only sleep if the effect itself doesn't already occupy the full duration
+      const loopingEffects = new Set(["wave", "breathe", "custom"]);
+      if (!loopingEffects.has(stepEffect)) {
+        await sleep(step.durationMs);
+      }
     }
     return;
   }
@@ -111,7 +116,7 @@ export async function applyLight(device: Device, params: LightParams): Promise<v
     const [x, y] = hexToXY(params.color);
     const hueBri = Math.round((bri / 100) * 254);
 
-    if (params.effect === "strobe") {
+    if (params.effect === "strobe" || params.effect === "twinkle") {
       await hueSet(device.bridgeIp, device.apiKey, lightId, { on: true, bri: hueBri, xy: [x, y], alert: "lselect" });
     } else if (params.effect === "rainbow") {
       await hueSet(device.bridgeIp, device.apiKey, lightId, { on: true, effect: "colorloop", bri: hueBri });
@@ -122,8 +127,41 @@ export async function applyLight(device: Device, params: LightParams): Promise<v
         await hueSet(device.bridgeIp, device.apiKey, lightId, { on: true, xy: hexToXY("#0000FF"), bri: hueBri, transitiontime: 0 });
         await sleep(300);
       }
-    } else if (params.effect === "pulse") {
+    } else if (params.effect === "pulse" || params.effect === "breathe" || params.effect === "scanner") {
       await hueSet(device.bridgeIp, device.apiKey, lightId, { on: true, bri: hueBri, xy: [x, y], alert: "select" });
+    } else if (params.effect === "explosion") {
+      const maxBri = 254;
+      await hueSet(device.bridgeIp, device.apiKey, lightId, { on: true, bri: maxBri, xy: [x, y], transitiontime: 0 });
+      await sleep(150);
+      await hueSet(device.bridgeIp, device.apiKey, lightId, { on: true, bri: Math.round(hueBri * 0.2), xy: [x, y], transitiontime: 8 });
+    } else if (params.effect === "wave" || params.effect === "flash") {
+      // wave: smooth brightness oscillation for the duration
+      const cycleDuration = 800;
+      const cycles = Math.max(1, Math.round(params.durationMs / cycleDuration));
+      const halfCycle = cycleDuration / 2;
+      const minBri = Math.max(1, Math.round(hueBri * 0.1));
+      const transHalf = Math.round(halfCycle / 100);
+      for (let i = 0; i < cycles; i++) {
+        await hueSet(device.bridgeIp, device.apiKey, lightId, { on: true, bri: minBri, xy: [x, y], transitiontime: transHalf });
+        await sleep(halfCycle);
+        await hueSet(device.bridgeIp, device.apiKey, lightId, { on: true, bri: hueBri, xy: [x, y], transitiontime: transHalf });
+        await sleep(halfCycle);
+      }
+    } else if (params.effect === "custom") {
+      // parametric custom oscillation — uses movementParams if present
+      const mp = (params as unknown as Record<string, unknown>).movementParams as { speedMs?: number; minBrightness?: number } | undefined;
+      const cycleDuration = mp?.speedMs ?? 800;
+      const minBriPct = mp?.minBrightness ?? 10;
+      const minBri = Math.max(1, Math.round((minBriPct / 100) * hueBri));
+      const cycles = Math.max(1, Math.round(params.durationMs / cycleDuration));
+      const halfCycle = cycleDuration / 2;
+      const trans = Math.round(halfCycle / 100);
+      for (let i = 0; i < cycles; i++) {
+        await hueSet(device.bridgeIp, device.apiKey, lightId, { on: true, bri: minBri, xy: [x, y], transitiontime: trans });
+        await sleep(halfCycle);
+        await hueSet(device.bridgeIp, device.apiKey, lightId, { on: true, bri: hueBri, xy: [x, y], transitiontime: trans });
+        await sleep(halfCycle);
+      }
     } else {
       await hueSet(device.bridgeIp, device.apiKey, lightId, { on: true, bri: hueBri, xy: [x, y], transitiontime: 1, alert: "none", effect: "none" });
     }
@@ -135,6 +173,12 @@ export async function applyLight(device: Device, params: LightParams): Promise<v
       await nanoleafSet(device.bridgeIp, device.apiKey, { select: "Color Burst" });
     } else if (params.effect === "strobe") {
       await nanoleafSet(device.bridgeIp, device.apiKey, { select: "Strobe" });
+    } else if (params.effect === "twinkle") {
+      await nanoleafSet(device.bridgeIp, device.apiKey, { select: "Twinkle" });
+    } else if (params.effect === "breathe" || params.effect === "wave") {
+      await nanoleafSet(device.bridgeIp, device.apiKey, { select: "Northern Lights" });
+    } else if (params.effect === "explosion") {
+      await nanoleafSet(device.bridgeIp, device.apiKey, { select: "Burst" });
     } else {
       await nanoleafSet(device.bridgeIp, device.apiKey, {
         on: { value: true }, hue: { value: h }, sat: { value: s }, brightness: { value: bri },

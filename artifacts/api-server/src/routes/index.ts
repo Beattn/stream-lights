@@ -14,6 +14,7 @@ import dashboardRouter from "./dashboard";
 import settingsRouter from "./settings";
 import scenesRouter from "./scenes";
 import webhooksRouter from "./webhooks";
+import previewRouter from "./preview";
 import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -36,5 +37,6 @@ router.use(lightsRouter);
 router.use(dashboardRouter);
 router.use(settingsRouter);
 router.use(scenesRouter);
+router.use(previewRouter);
 
 export default router;
