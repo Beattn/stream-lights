@@ -6,7 +6,10 @@ export interface EffectStep {
   color: string;
   durationMs: number;
   brightness?: number;
+  effect?: string;
 }
+
+const STEP_EFFECTS = ["solid", "pulse", "flash", "strobe", "fade"];
 
 interface Props {
   steps: EffectStep[];
@@ -19,7 +22,7 @@ export default function CustomEffectBuilder({ steps, onChange, globalBrightness 
 
   const addStep = () => {
     const last = steps[steps.length - 1];
-    onChange([...steps, { color: last?.color ?? "#ff6600", durationMs: 500 }]);
+    onChange([...steps, { color: last?.color ?? "#ff6600", durationMs: 500, effect: last?.effect ?? "solid" }]);
   };
 
   const updateStep = (i: number, patch: Partial<EffectStep>) => {
@@ -45,66 +48,83 @@ export default function CustomEffectBuilder({ steps, onChange, globalBrightness 
               minWidth: "4px",
               opacity: (step.brightness ?? globalBrightness) / 100,
             }}
-            title={`Step ${i + 1}: ${step.color} for ${step.durationMs}ms`}
+            title={`Step ${i + 1}: ${step.color} · ${step.effect ?? "solid"} for ${step.durationMs}ms`}
           />
         ))}
       </div>
 
       {/* Steps list */}
-      <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+      <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
         {steps.map((step, i) => (
-          <div key={i} className="flex items-center gap-2 bg-muted/30 rounded-lg px-3 py-2 border border-border/50">
-            <GripVertical className="w-3.5 h-3.5 text-muted-foreground shrink-0 opacity-40" />
+          <div key={i} className="bg-muted/30 rounded-lg px-3 py-2 border border-border/50 space-y-2">
+            {/* Row 1: color + hex + duration + brightness + delete */}
+            <div className="flex items-center gap-2">
+              <GripVertical className="w-3.5 h-3.5 text-muted-foreground shrink-0 opacity-40" />
 
-            {/* Color */}
-            <input
-              type="color"
-              value={step.color}
-              onChange={e => updateStep(i, { color: e.target.value })}
-              className="w-8 h-8 rounded cursor-pointer border-0 bg-transparent p-0"
-            />
+              <input
+                type="color"
+                value={step.color}
+                onChange={e => updateStep(i, { color: e.target.value })}
+                className="w-8 h-8 rounded cursor-pointer border-0 bg-transparent p-0 shrink-0"
+              />
 
-            {/* Color hex */}
-            <Input
-              value={step.color}
-              onChange={e => updateStep(i, { color: e.target.value })}
-              className="w-24 font-mono text-xs h-8 uppercase"
-              maxLength={7}
-            />
+              <Input
+                value={step.color}
+                onChange={e => updateStep(i, { color: e.target.value })}
+                className="w-24 font-mono text-xs h-8 uppercase shrink-0"
+                maxLength={7}
+              />
 
-            {/* Duration */}
-            <div className="flex items-center gap-1.5 flex-1">
               <Input
                 type="number"
                 value={step.durationMs}
                 onChange={e => updateStep(i, { durationMs: Math.max(100, Number(e.target.value)) })}
-                className="h-8 text-xs"
+                className="h-8 text-xs flex-1"
                 min={100}
                 step={100}
               />
-              <span className="text-xs text-muted-foreground whitespace-nowrap">ms</span>
+              <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">ms</span>
+
+              <div className="flex items-center gap-1 w-20 shrink-0">
+                <input
+                  type="range"
+                  min={1}
+                  max={100}
+                  value={step.brightness ?? globalBrightness}
+                  onChange={e => updateStep(i, { brightness: Number(e.target.value) })}
+                  className="w-full accent-primary"
+                  title={`Brightness: ${step.brightness ?? globalBrightness}%`}
+                />
+              </div>
+
+              <button
+                onClick={() => removeStep(i)}
+                disabled={steps.length <= 1}
+                className="text-muted-foreground hover:text-destructive transition-colors disabled:opacity-30 shrink-0"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
             </div>
 
-            {/* Brightness override */}
-            <div className="flex items-center gap-1.5 w-24 shrink-0">
-              <input
-                type="range"
-                min={1}
-                max={100}
-                value={step.brightness ?? globalBrightness}
-                onChange={e => updateStep(i, { brightness: Number(e.target.value) })}
-                className="w-full accent-primary"
-                title={`Brightness: ${step.brightness ?? globalBrightness}%`}
-              />
+            {/* Row 2: movement/effect per step */}
+            <div className="flex items-center gap-2 pl-5">
+              <span className="text-xs text-muted-foreground whitespace-nowrap">Movement:</span>
+              <div className="flex gap-1 flex-wrap">
+                {STEP_EFFECTS.map(ef => (
+                  <button
+                    key={ef}
+                    onClick={() => updateStep(i, { effect: ef })}
+                    className={`text-xs px-2 py-0.5 rounded-full border transition-colors capitalize ${
+                      (step.effect ?? "solid") === ef
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-muted border-border text-muted-foreground hover:border-primary/50"
+                    }`}
+                  >
+                    {ef}
+                  </button>
+                ))}
+              </div>
             </div>
-
-            <button
-              onClick={() => removeStep(i)}
-              disabled={steps.length <= 1}
-              className="text-muted-foreground hover:text-destructive transition-colors disabled:opacity-30"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
           </div>
         ))}
       </div>

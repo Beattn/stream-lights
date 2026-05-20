@@ -12,6 +12,7 @@ export interface EffectStep {
   color: string;
   durationMs: number;
   brightness?: number;
+  effect?: string;
 }
 
 export interface LightParams {
@@ -78,7 +79,7 @@ async function applyToDevice(
           ...params,
           color: step.color,
           brightness: step.brightness ?? params.brightness,
-          effect: "solid",
+          effect: step.effect ?? "solid",
         });
         await sleep(step.durationMs);
       }

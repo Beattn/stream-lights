@@ -2,7 +2,7 @@ import { useState } from "react";
 import {
   useListCommands, useCreateCommand, useUpdateCommand, useDeleteCommand,
 } from "@workspace/api-client-react";
-import { Terminal, Plus, Trash2, ToggleLeft, ToggleRight } from "lucide-react";
+import { Terminal, Plus, Trash2, ToggleLeft, ToggleRight, Music } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -14,8 +14,8 @@ import CustomEffectBuilder, { type EffectStep } from "@/components/custom-effect
 const EFFECTS = ["solid", "strobe", "pulse", "rainbow", "fade", "police", "custom"];
 
 const DEFAULT_STEPS: EffectStep[] = [
-  { color: "#ff00ff", durationMs: 500 },
-  { color: "#00ffff", durationMs: 500 },
+  { color: "#ff00ff", durationMs: 500, effect: "solid" },
+  { color: "#00ffff", durationMs: 500, effect: "solid" },
 ];
 
 export default function Commands() {
@@ -92,8 +92,13 @@ function CommandRow({ command }: { command: any }) {
           <div className="flex items-center gap-3">
             <span className="font-mono font-bold text-primary text-lg">{command.command}</span>
             <span className="text-muted-foreground text-sm">{command.name}</span>
+            {command.audioUrl && (
+              <span className="flex items-center gap-1 text-xs text-primary/70 bg-primary/10 px-1.5 py-0.5 rounded-full border border-primary/20">
+                <Music className="w-3 h-3" /> audio
+              </span>
+            )}
           </div>
-          <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3">
+          <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
             <span className="capitalize">{command.effect}</span>
             {command.effect === "custom" && customSteps.length > 0 && (
               <span>({customSteps.length} steps)</span>
@@ -145,6 +150,15 @@ function AddCommandModal() {
   const [effect, setEffect] = useState("rainbow");
   const [cooldownSeconds, setCooldownSeconds] = useState(30);
   const [customSteps, setCustomSteps] = useState<EffectStep[]>(DEFAULT_STEPS);
+  const [audioUrl, setAudioUrl] = useState("");
+  const [audioVolume, setAudioVolume] = useState(80);
+
+  const reset = () => {
+    setName(""); setCommand(""); setColor("#FF00FF");
+    setBrightness(100); setDurationMs(5000); setEffect("rainbow");
+    setCooldownSeconds(30); setCustomSteps(DEFAULT_STEPS);
+    setAudioUrl(""); setAudioVolume(80);
+  };
 
   const handleSave = () => {
     const totalCustomMs = customSteps.reduce((s, st) => s + st.durationMs, 0);
@@ -154,14 +168,13 @@ function AddCommandModal() {
         durationMs: effect === "custom" ? totalCustomMs : durationMs,
         effect, enabled: true, cooldownSeconds,
         customSteps: effect === "custom" ? JSON.stringify(customSteps) : "[]",
-      }
+        ...(audioUrl ? { audioUrl, audioVolume } : {}),
+      } as any
     }, {
       onSuccess: () => {
         toast({ title: "Command created!" });
         setOpen(false);
-        setName(""); setCommand(""); setColor("#FF00FF");
-        setBrightness(100); setDurationMs(5000); setEffect("rainbow");
-        setCooldownSeconds(30); setCustomSteps(DEFAULT_STEPS);
+        reset();
       },
       onError: () => toast({ title: "Failed to create command", variant: "destructive" }),
     });
@@ -211,7 +224,7 @@ function AddCommandModal() {
           {effect === "custom" ? (
             <div className="grid gap-2">
               <Label>Light Sequence</Label>
-              <p className="text-xs text-muted-foreground -mt-1">Paint the steps your lights will play in order.</p>
+              <p className="text-xs text-muted-foreground -mt-1">Paint the steps your lights will play in order. Set color, duration, brightness and movement per step.</p>
               <CustomEffectBuilder steps={customSteps} onChange={setCustomSteps} globalBrightness={brightness} />
             </div>
           ) : (
@@ -233,6 +246,36 @@ function AddCommandModal() {
               <Label>Cooldown (seconds)</Label>
               <Input type="number" value={cooldownSeconds} onChange={e => setCooldownSeconds(Number(e.target.value))} min={0} />
             </div>
+          </div>
+
+          {/* Audio section */}
+          <div className="border border-border/60 rounded-lg p-3 space-y-3 bg-muted/20">
+            <div className="flex items-center gap-2">
+              <Music className="w-4 h-4 text-muted-foreground" />
+              <Label className="text-sm font-medium">Audio (optional)</Label>
+            </div>
+            <div className="grid gap-2">
+              <Label className="text-xs text-muted-foreground">URL — supports .mp3, .wav or any direct audio link</Label>
+              <Input
+                value={audioUrl}
+                onChange={e => setAudioUrl(e.target.value)}
+                placeholder="https://example.com/sound.mp3"
+                className="text-sm"
+              />
+            </div>
+            {audioUrl && (
+              <div className="grid gap-2">
+                <Label className="text-xs text-muted-foreground">Volume ({audioVolume}%)</Label>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={audioVolume}
+                  onChange={e => setAudioVolume(Number(e.target.value))}
+                  className="w-full accent-primary"
+                />
+              </div>
+            )}
           </div>
         </div>
         <div className="flex justify-end gap-2">
