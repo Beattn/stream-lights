@@ -28,9 +28,9 @@ const PLATFORM_DEFS = [
   {
     id: "kick",
     name: "Kick",
-    description: "Followers, subscriptions, and gifted subs.",
+    description: "Followers, subscriptions, gifted subs, raids, and chat commands.",
     color: "#53FC18",
-    events: ["follow", "subscribe", "donation"],
+    events: ["follow", "subscribe", "subscribe_gift", "raid", "chat_message"],
   },
   {
     id: "streamlabs",

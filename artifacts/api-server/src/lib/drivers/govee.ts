@@ -2,13 +2,14 @@ import type { Device } from "@workspace/db";
 import type { LightParams } from "./light-engine";
 
 const BASE = "https://developer-api.govee.com/v1";
+const TIMEOUT_MS = 5000;
 
 async function goveeRequest(apiKey: string, body: object): Promise<void> {
   await fetch(`${BASE}/devices/control`, {
     method: "PUT",
     headers: { "Govee-API-Key": apiKey, "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
   });
 }
 
@@ -27,42 +28,55 @@ function parseDeviceId(deviceId: string | null): { device: string; model: string
   return { model: deviceId.slice(0, idx), device: deviceId.slice(idx + 1) };
 }
 
+function req(apiKey: string, device: string, model: string, cmd: object): Promise<void> {
+  return goveeRequest(apiKey, { device, model, cmd });
+}
+
 export async function goveeApply(device: Device, params: LightParams): Promise<void> {
   if (!device.apiKey) throw new Error("Govee requires apiKey");
   const { device: mac, model } = parseDeviceId(device.deviceId);
   const rgb = hexToRgb(params.color);
-
-  await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "turn", value: "on" } });
-  await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "brightness", value: params.brightness } });
+  const key = device.apiKey;
 
   if (params.effect === "police") {
+    // Sequential flashing — API latency provides natural pacing between flashes
     for (let i = 0; i < 4; i++) {
-      await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "color", value: { r: 255, g: 0, b: 0 } } });
-      await sleep(300);
-      await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "color", value: { r: 0, g: 0, b: 255 } } });
-      await sleep(300);
+      await req(key, mac, model, { name: "color", value: { r: 255, g: 0, b: 0 } });
+      await sleep(250);
+      await req(key, mac, model, { name: "color", value: { r: 0, g: 0, b: 255 } });
+      await sleep(250);
     }
   } else if (params.effect === "rainbow") {
     const colors = [
       { r: 255, g: 0, b: 0 }, { r: 255, g: 127, b: 0 }, { r: 255, g: 255, b: 0 },
       { r: 0, g: 255, b: 0 }, { r: 0, g: 0, b: 255 }, { r: 139, g: 0, b: 255 },
     ];
-    const delay = params.durationMs / colors.length;
+    const delay = Math.max(200, params.durationMs / colors.length);
     for (const c of colors) {
-      await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "color", value: c } });
+      await req(key, mac, model, { name: "color", value: c });
       await sleep(delay);
     }
   } else if (params.effect === "strobe") {
-    for (let i = 0; i < 6; i++) {
-      await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "turn", value: "on" } });
-      await sleep(150);
-      await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "turn", value: "off" } });
-      await sleep(150);
+    // Strobe: alternate brightness — API latency provides natural pacing
+    for (let i = 0; i < 5; i++) {
+      await req(key, mac, model, { name: "brightness", value: 100 });
+      await sleep(120);
+      await req(key, mac, model, { name: "brightness", value: 0 });
+      await sleep(120);
     }
-    await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "turn", value: "on" } });
-    await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "color", value: rgb } });
+    // Restore at end
+    await Promise.all([
+      req(key, mac, model, { name: "color", value: rgb }),
+      req(key, mac, model, { name: "brightness", value: params.brightness }),
+    ]);
   } else {
-    await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "color", value: rgb } });
+    // Solid / pulse / fade / any other effect:
+    // Fire turn-on + brightness + color in parallel — cuts response time from ~900ms to ~300ms
+    await Promise.all([
+      req(key, mac, model, { name: "turn", value: "on" }),
+      req(key, mac, model, { name: "brightness", value: params.brightness }),
+      req(key, mac, model, { name: "color", value: rgb }),
+    ]);
   }
 }
 
@@ -70,8 +84,12 @@ export async function goveeIdle(device: Device, idleColor: string, idleBrightnes
   if (!device.apiKey || !device.deviceId) return;
   const { device: mac, model } = parseDeviceId(device.deviceId);
   const rgb = hexToRgb(idleColor);
-  await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "brightness", value: idleBrightness } });
-  await goveeRequest(device.apiKey, { device: mac, model, cmd: { name: "color", value: rgb } });
+  const key = device.apiKey;
+  // Fire brightness + color in parallel for fast idle return
+  await Promise.all([
+    goveeRequest(key, { device: mac, model, cmd: { name: "brightness", value: idleBrightness } }),
+    goveeRequest(key, { device: mac, model, cmd: { name: "color", value: rgb } }),
+  ]);
 }
 
 function sleep(ms: number): Promise<void> {

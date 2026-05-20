@@ -69,7 +69,7 @@ export class KickClient {
         } else if (msg.event === "App\\Events\\GiftedSubscriptionsEvent") {
           const gifter = (data.gifted_username as string) ?? "unknown";
           const count = (data.gifted_quantity as number) ?? 1;
-          this.handler({ eventType: "subscribe", username: gifter, message: `Gifted ${count} subs`, amount: count });
+          this.handler({ eventType: "subscribe_gift", username: gifter, message: `Gifted ${count} subs`, amount: count });
         } else if (msg.event === "App\\Events\\FollowersUpdated") {
           const username = (data.username as string) ?? "follower";
           this.handler({ eventType: "follow", username, message: "" });

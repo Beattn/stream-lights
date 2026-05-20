@@ -1,4 +1,4 @@
-import { fireLights, type LightParams, type FireOptions } from "./light-engine";
+import { fireLights, returnToIdle, type LightParams, type FireOptions } from "./light-engine";
 import { logger } from "../logger";
 
 interface QueuedAlert {
@@ -15,7 +15,7 @@ class AlertQueue {
     const key = opts.eventType ?? "manual";
     const now = Date.now();
     const lastFired = this.cooldowns.get(key) ?? 0;
-    const cooldownMs = 500;
+    const cooldownMs = 200;
 
     if (now - lastFired < cooldownMs) {
       logger.debug({ key }, "Alert throttled by cooldown");
@@ -48,7 +48,6 @@ class AlertQueue {
 
       const hasMore = this.queue.length > 0;
       if (!hasMore && alert.opts.returnToIdle !== false) {
-        const { returnToIdle } = await import("./light-engine.js");
         await returnToIdle(alert.opts.deviceIds);
       }
     } catch (err) {

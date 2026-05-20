@@ -37,7 +37,12 @@ export default function Settings() {
       try {
         const raw = (settings as Record<string, unknown>).overlayConfig;
         if (typeof raw === "string" && raw) {
-          setOverlayConfig({ ...DEFAULT_OVERLAY_CONFIG, ...JSON.parse(raw) });
+          const parsed = JSON.parse(raw) as Partial<OverlayConfig>;
+          setOverlayConfig({
+            ...DEFAULT_OVERLAY_CONFIG,
+            ...parsed,
+            events: { ...DEFAULT_OVERLAY_CONFIG.events, ...(parsed.events ?? {}) },
+          });
         }
       } catch {
         // keep defaults

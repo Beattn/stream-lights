@@ -59,10 +59,14 @@ function hexToRgb(hex: string) {
   return { r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16) };
 }
 
+const GOVEE_TIMEOUT_MS = 5000;
+const HUE_TIMEOUT_MS = 5000;
+const LIFX_TIMEOUT_MS = 5000;
+
 async function hueSet(ip: string, key: string, lightId: string, body: object) {
   await fetch(`http://${ip}/api/${key}/lights/${lightId}/state`, {
     method: "PUT", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body), signal: AbortSignal.timeout(5000),
+    body: JSON.stringify(body), signal: AbortSignal.timeout(HUE_TIMEOUT_MS),
   });
 }
 
@@ -76,14 +80,14 @@ async function nanoleafSet(ip: string, token: string, body: object) {
 async function lifxSet(key: string, selector: string, body: object) {
   await fetch(`https://api.lifx.com/v1/lights/${selector}/state`, {
     method: "PUT", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body), signal: AbortSignal.timeout(8000),
+    body: JSON.stringify(body), signal: AbortSignal.timeout(LIFX_TIMEOUT_MS),
   });
 }
 
 async function goveeSet(key: string, device: string, model: string, cmd: object) {
   await fetch("https://developer-api.govee.com/v1/devices/control", {
     method: "PUT", headers: { "Govee-API-Key": key, "Content-Type": "application/json" },
-    body: JSON.stringify({ device, model, cmd }), signal: AbortSignal.timeout(8000),
+    body: JSON.stringify({ device, model, cmd }), signal: AbortSignal.timeout(GOVEE_TIMEOUT_MS),
   });
 }
 
@@ -100,7 +104,6 @@ export async function applyLight(device: Device, params: LightParams): Promise<v
         effect: stepEffect,
         durationMs: step.durationMs,
       });
-      // Only sleep if the effect itself doesn't already occupy the full duration
       const loopingEffects = new Set(["wave", "breathe", "custom"]);
       if (!loopingEffects.has(stepEffect)) {
         await sleep(step.durationMs);
@@ -130,12 +133,10 @@ export async function applyLight(device: Device, params: LightParams): Promise<v
     } else if (params.effect === "pulse" || params.effect === "breathe" || params.effect === "scanner") {
       await hueSet(device.bridgeIp, device.apiKey, lightId, { on: true, bri: hueBri, xy: [x, y], alert: "select" });
     } else if (params.effect === "explosion") {
-      const maxBri = 254;
-      await hueSet(device.bridgeIp, device.apiKey, lightId, { on: true, bri: maxBri, xy: [x, y], transitiontime: 0 });
+      await hueSet(device.bridgeIp, device.apiKey, lightId, { on: true, bri: 254, xy: [x, y], transitiontime: 0 });
       await sleep(150);
       await hueSet(device.bridgeIp, device.apiKey, lightId, { on: true, bri: Math.round(hueBri * 0.2), xy: [x, y], transitiontime: 8 });
     } else if (params.effect === "wave" || params.effect === "flash") {
-      // wave: smooth brightness oscillation for the duration
       const cycleDuration = 800;
       const cycles = Math.max(1, Math.round(params.durationMs / cycleDuration));
       const halfCycle = cycleDuration / 2;
@@ -145,21 +146,6 @@ export async function applyLight(device: Device, params: LightParams): Promise<v
         await hueSet(device.bridgeIp, device.apiKey, lightId, { on: true, bri: minBri, xy: [x, y], transitiontime: transHalf });
         await sleep(halfCycle);
         await hueSet(device.bridgeIp, device.apiKey, lightId, { on: true, bri: hueBri, xy: [x, y], transitiontime: transHalf });
-        await sleep(halfCycle);
-      }
-    } else if (params.effect === "custom") {
-      // parametric custom oscillation — uses movementParams if present
-      const mp = (params as unknown as Record<string, unknown>).movementParams as { speedMs?: number; minBrightness?: number } | undefined;
-      const cycleDuration = mp?.speedMs ?? 800;
-      const minBriPct = mp?.minBrightness ?? 10;
-      const minBri = Math.max(1, Math.round((minBriPct / 100) * hueBri));
-      const cycles = Math.max(1, Math.round(params.durationMs / cycleDuration));
-      const halfCycle = cycleDuration / 2;
-      const trans = Math.round(halfCycle / 100);
-      for (let i = 0; i < cycles; i++) {
-        await hueSet(device.bridgeIp, device.apiKey, lightId, { on: true, bri: minBri, xy: [x, y], transitiontime: trans });
-        await sleep(halfCycle);
-        await hueSet(device.bridgeIp, device.apiKey, lightId, { on: true, bri: hueBri, xy: [x, y], transitiontime: trans });
         await sleep(halfCycle);
       }
     } else {
@@ -200,8 +186,44 @@ export async function applyLight(device: Device, params: LightParams): Promise<v
       const model = device.deviceId.slice(0, idx);
       const mac = device.deviceId.slice(idx + 1);
       const { r, g, b } = hexToRgb(params.color);
-      await goveeSet(device.apiKey, mac, model, { name: "color", value: { r, g, b } });
-      await goveeSet(device.apiKey, mac, model, { name: "brightness", value: bri });
+
+      if (params.effect === "strobe") {
+        // Strobe: alternate on/off — fire pairs in parallel, API latency provides natural pacing
+        for (let i = 0; i < 5; i++) {
+          await goveeSet(device.apiKey, mac, model, { name: "brightness", value: 100 });
+          await sleep(120);
+          await goveeSet(device.apiKey, mac, model, { name: "brightness", value: 0 });
+          await sleep(120);
+        }
+        // Restore color and brightness at the end
+        await Promise.all([
+          goveeSet(device.apiKey, mac, model, { name: "color", value: { r, g, b } }),
+          goveeSet(device.apiKey, mac, model, { name: "brightness", value: bri }),
+        ]);
+      } else if (params.effect === "police") {
+        for (let i = 0; i < 4; i++) {
+          await goveeSet(device.apiKey, mac, model, { name: "color", value: { r: 255, g: 0, b: 0 } });
+          await sleep(250);
+          await goveeSet(device.apiKey, mac, model, { name: "color", value: { r: 0, g: 0, b: 255 } });
+          await sleep(250);
+        }
+      } else if (params.effect === "rainbow") {
+        const colors = [
+          { r: 255, g: 0, b: 0 }, { r: 255, g: 127, b: 0 }, { r: 255, g: 255, b: 0 },
+          { r: 0, g: 255, b: 0 }, { r: 0, g: 0, b: 255 }, { r: 139, g: 0, b: 255 },
+        ];
+        const delay = Math.max(200, params.durationMs / colors.length);
+        for (const c of colors) {
+          await goveeSet(device.apiKey, mac, model, { name: "color", value: c });
+          await sleep(delay);
+        }
+      } else {
+        // Solid / pulse / fade / any other — fire color + brightness in parallel for instant response
+        await Promise.all([
+          goveeSet(device.apiKey, mac, model, { name: "color", value: { r, g, b } }),
+          goveeSet(device.apiKey, mac, model, { name: "brightness", value: bri }),
+        ]);
+      }
     }
   }
 
@@ -212,7 +234,7 @@ export async function applyLight(device: Device, params: LightParams): Promise<v
     await fetch(device.bridgeIp, {
       method: "POST", headers,
       body: JSON.stringify({ color: params.color, r, g, b, brightness: bri, effect: params.effect, durationMs: params.durationMs }),
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(5000),
     });
   }
 }

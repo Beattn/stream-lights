@@ -17,8 +17,8 @@ import { apiUrl } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 
 const EVENT_TYPES = [
-  "follow", "subscribe", "bits", "raid", "donation", "channel_point",
-  "chat_message", "ban", "timeout",
+  "follow", "subscribe", "subscribe_gift", "bits", "raid", "donation",
+  "channel_point", "chat_message", "ban", "timeout",
 ];
 
 const PLATFORMS = ["twitch", "youtube", "kick", "streamlabs", "streamelements"];
