@@ -13,6 +13,11 @@ export async function runMigrations(): Promise<void> {
     `);
 
     await client.query(`
+      ALTER TABLE settings
+        ADD COLUMN IF NOT EXISTS overlay_config text;
+    `);
+
+    await client.query(`
       CREATE TABLE IF NOT EXISTS audio_jobs (
         id          text PRIMARY KEY,
         url         text NOT NULL,

@@ -4,6 +4,7 @@ import { audioPlayer } from "./audio";
 import { KickClient } from "./kick";
 import { TwitchClient } from "./twitch";
 import { startAudioJobProcessor, stopAudioJobProcessor } from "./audio-jobs";
+import { startOverlayServer, stopOverlayServer, broadcastEvent, updateOverlayConfig } from "./overlay-server";
 
 interface Trigger {
   id: number;
@@ -30,6 +31,9 @@ interface Settings {
   idleColor: string;
   idleBrightness: number;
   idleEnabled: boolean;
+  overlayEnabled?: boolean;
+  overlayPort?: number;
+  overlayConfig?: string | null;
 }
 
 interface Platform {
@@ -177,6 +181,7 @@ class StreamLightsAgent {
     this.kickClient = null;
     this.twitchClient = null;
     stopAudioJobProcessor();
+    stopOverlayServer();
     this.emitStatus();
   }
 
@@ -198,7 +203,20 @@ class StreamLightsAgent {
           deviceIds: (() => { try { return JSON.parse(t.deviceIds as unknown as string) as number[]; } catch { return []; } })(),
         }));
       }
-      if (setRes.data) this.settings = setRes.data as Settings;
+      if (setRes.data) {
+        this.settings = setRes.data as Settings;
+        // Start or stop the overlay server whenever settings change
+        if (this.settings.overlayEnabled) {
+          let parsedConfig: Record<string, unknown> | undefined;
+          try {
+            if (this.settings.overlayConfig) parsedConfig = JSON.parse(this.settings.overlayConfig);
+          } catch { /* keep defaults */ }
+          startOverlayServer(this.settings.overlayPort ?? 3001, parsedConfig);
+          if (parsedConfig) updateOverlayConfig(parsedConfig);
+        } else {
+          stopOverlayServer();
+        }
+      }
       if (platRes.data) this.platforms = platRes.data as Platform[];
       if (cmdRes.data) this.commands = cmdRes.data as Command[];
 
@@ -236,6 +254,10 @@ class StreamLightsAgent {
       if (!fired) await this.matchTriggers(event.eventType, platform, event.username, event.message, event.amount);
     } else {
       await this.matchTriggers(event.eventType, platform, event.username, event.message, event.amount);
+      // Push alert to OBS overlay (skip chat messages — too noisy)
+      if (this.settings?.overlayEnabled) {
+        broadcastEvent({ eventType: event.eventType, username: event.username, message: event.message, amount: event.amount });
+      }
     }
 
     this.emitStatus();

@@ -38,6 +38,7 @@ router.patch("/settings", writeLimiter, async (req, res) => {
       notificationsEnabled: z.boolean().optional(),
       overlayEnabled: z.boolean().optional(),
       overlayPort: z.number().int().min(1024).max(65535).optional(),
+      overlayConfig: z.string().max(32768).optional().nullable(),
     }).strict().parse(req.body);
 
     const [updated] = await db.update(settingsTable).set(body).where(eq(settingsTable.id, settings.id)).returning();

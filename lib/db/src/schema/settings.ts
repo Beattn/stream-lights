@@ -12,6 +12,7 @@ export const settingsTable = pgTable("settings", {
   notificationsEnabled: boolean("notifications_enabled").notNull().default(true),
   overlayEnabled: boolean("overlay_enabled").notNull().default(false),
   overlayPort: integer("overlay_port").notNull().default(3001),
+  overlayConfig: text("overlay_config"),
 });
 
 export const insertSettingsSchema = createInsertSchema(settingsTable).omit({ id: true });
