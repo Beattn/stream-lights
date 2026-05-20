@@ -161,7 +161,7 @@ class StreamLightsAgent {
     try {
       this.supabase = createClient(supabaseUrl, supabaseKey, {
         auth: { persistSession: false },
-        realtime: { transport: WebSocket },
+        realtime: { transport: WebSocket as unknown as typeof globalThis.WebSocket },
       });
       await this.loadConfig();
       this._running = true;

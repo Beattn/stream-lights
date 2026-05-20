@@ -10,7 +10,7 @@ let supabase: ReturnType<typeof createClient> | null = null;
 if (supabaseUrl && supabaseServiceKey) {
   supabase = createClient(supabaseUrl, supabaseServiceKey, {
     auth: { persistSession: false },
-    realtime: { transport: ws },
+    realtime: { transport: ws as unknown as typeof globalThis.WebSocket },
   });
 }
 
