@@ -8,16 +8,44 @@ import { writeLimiter } from "../middlewares/rate-limit";
 const router = Router();
 
 const YOUTUBE_REGEX = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/)|youtu\.be\/)/i;
-
 const Body = z.object({ url: z.string().url() });
-
 const AUDIO_BUCKET = process.env.SUPABASE_AUDIO_BUCKET ?? "audio";
+const DOWNLOAD_TIMEOUT_MS = 25_000;
 
 function getSupabase() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("Supabase not configured");
+  if (!url || !key) throw new Error("Storage not configured (missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY)");
   return createClient(url, key, { auth: { persistSession: false } });
+}
+
+async function ensureBucket(supabase: ReturnType<typeof createClient>) {
+  const { error } = await supabase.storage.createBucket(AUDIO_BUCKET, { public: true });
+  if (error && !error.message.includes("already exists") && !error.message.includes("Duplicate")) {
+    throw new Error(`Could not create storage bucket "${AUDIO_BUCKET}": ${error.message}`);
+  }
+}
+
+async function downloadYouTubeAudio(url: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      stream.destroy();
+      reject(new Error("YouTube download timed out. The video may be too long or the server is being rate-limited by YouTube."));
+    }, DOWNLOAD_TIMEOUT_MS);
+
+    const stream = ytdl(url, { filter: "audioonly", quality: "highestaudio" });
+    const chunks: Buffer[] = [];
+
+    stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+    stream.on("end", () => {
+      clearTimeout(timer);
+      resolve(Buffer.concat(chunks));
+    });
+    stream.on("error", (err: Error) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
 }
 
 router.post("/audio/fetch", writeLimiter, async (req: Request, res: Response) => {
@@ -31,9 +59,7 @@ router.post("/audio/fetch", writeLimiter, async (req: Request, res: Response) =>
 
   try {
     const supabase = getSupabase();
-
-    // Auto-create bucket if it doesn't exist (no-op if already present)
-    await supabase.storage.createBucket(AUDIO_BUCKET, { public: true }).catch(() => {});
+    await ensureBucket(supabase);
 
     if (YOUTUBE_REGEX.test(url)) {
       if (!ytdl.validateURL(url)) {
@@ -41,24 +67,22 @@ router.post("/audio/fetch", writeLimiter, async (req: Request, res: Response) =>
         return;
       }
 
-      const info = await ytdl.getInfo(url);
-      const title = info.videoDetails.title.slice(0, 80).replace(/[^\w\s-]/g, "").trim();
-      const objectPath = `${randomUUID()}-${title.replace(/\s+/g, "-")}.mp3`;
+      let title = "audio";
+      try {
+        const info = await ytdl.getInfo(url);
+        title = info.videoDetails.title.slice(0, 80).replace(/[^\w\s-]/g, "").trim();
+      } catch {
+        // info fetch failed — still attempt download with a generic name
+      }
 
-      const chunks: Buffer[] = [];
-      await new Promise<void>((resolve, reject) => {
-        const stream = ytdl(url, { filter: "audioonly", quality: "highestaudio" });
-        stream.on("data", (chunk: Buffer) => chunks.push(chunk));
-        stream.on("end", resolve);
-        stream.on("error", reject);
-      });
-      const buffer = Buffer.concat(chunks);
+      const objectPath = `${randomUUID()}-${title.replace(/\s+/g, "-")}.mp3`;
+      const buffer = await downloadYouTubeAudio(url);
 
       const { error } = await supabase.storage
         .from(AUDIO_BUCKET)
         .upload(objectPath, buffer, { contentType: "audio/mpeg", upsert: false });
 
-      if (error) throw error;
+      if (error) throw new Error(error.message);
 
       const { data } = supabase.storage.from(AUDIO_BUCKET).getPublicUrl(objectPath);
       res.json({ url: data.publicUrl, title });
@@ -69,6 +93,7 @@ router.post("/audio/fetch", writeLimiter, async (req: Request, res: Response) =>
     const fetchRes = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; StreamLights/1.0)" },
       redirect: "follow",
+      signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
     });
 
     if (!fetchRes.ok) {
@@ -89,25 +114,25 @@ router.post("/audio/fetch", writeLimiter, async (req: Request, res: Response) =>
     };
     const ext = extMap[contentType.split(";")[0].trim()] ?? "mp3";
     const objectPath = `${randomUUID()}.${ext}`;
-
-    const arrayBuffer = await fetchRes.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const buffer = Buffer.from(await fetchRes.arrayBuffer());
 
     const { error } = await supabase.storage
       .from(AUDIO_BUCKET)
       .upload(objectPath, buffer, { contentType, upsert: false });
 
-    if (error) throw error;
+    if (error) throw new Error(error.message);
 
     const { data } = supabase.storage.from(AUDIO_BUCKET).getPublicUrl(objectPath);
     res.json({ url: data.publicUrl });
   } catch (err) {
     req.log.error({ err }, "Audio fetch failed");
     const msg = (err as Error).message ?? "";
-    if (msg.includes("private") || msg.includes("age-restricted") || msg.includes("unavailable")) {
+    if (msg.includes("timed out")) {
+      res.status(504).json({ error: msg });
+    } else if (msg.includes("private") || msg.includes("age-restricted") || msg.includes("unavailable")) {
       res.status(400).json({ error: `Can't access this video: ${msg}` });
     } else {
-      res.status(500).json({ error: "Failed to fetch audio. The video may be private, age-restricted, or unavailable." });
+      res.status(500).json({ error: msg || "Failed to fetch audio." });
     }
   }
 });

@@ -23,8 +23,15 @@ const AUDIO_BUCKET = process.env.SUPABASE_AUDIO_BUCKET ?? "audio";
 function getSupabase() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("Supabase not configured");
+  if (!url || !key) throw new Error("Storage not configured (missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY)");
   return createClient(url, key, { auth: { persistSession: false } });
+}
+
+async function ensureBucket(supabase: ReturnType<typeof createClient>) {
+  const { error } = await supabase.storage.createBucket(AUDIO_BUCKET, { public: true });
+  if (error && !error.message.includes("already exists") && !error.message.includes("Duplicate")) {
+    throw new Error(`Could not create storage bucket "${AUDIO_BUCKET}": ${error.message}. Create a public bucket named "${AUDIO_BUCKET}" in your Supabase Storage dashboard.`);
+  }
 }
 
 router.post(
@@ -45,27 +52,22 @@ router.post(
 
     try {
       const supabase = getSupabase();
-
-      // Auto-create bucket if it doesn't exist (no-op if already present)
-      await supabase.storage.createBucket(AUDIO_BUCKET, { public: true }).catch(() => {});
+      await ensureBucket(supabase);
 
       const ext = EXT_MAP[mimeType] ?? "mp3";
       const objectPath = `${randomUUID()}.${ext}`;
 
       const { error } = await supabase.storage
         .from(AUDIO_BUCKET)
-        .upload(objectPath, file.buffer, {
-          contentType: mimeType,
-          upsert: false,
-        });
+        .upload(objectPath, file.buffer, { contentType: mimeType, upsert: false });
 
-      if (error) throw error;
+      if (error) throw new Error(error.message);
 
       const { data } = supabase.storage.from(AUDIO_BUCKET).getPublicUrl(objectPath);
       res.json({ url: data.publicUrl });
     } catch (err) {
       req.log.error({ err }, "Audio upload failed");
-      res.status(500).json({ error: "Upload failed" });
+      res.status(500).json({ error: (err as Error).message ?? "Upload failed" });
     }
   }
 );

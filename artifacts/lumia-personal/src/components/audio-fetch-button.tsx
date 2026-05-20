@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Download, Loader2, CheckCircle, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { apiUrl } from "@/lib/api";
 
 interface Props {
   url: string;
@@ -43,13 +44,15 @@ export default function AudioFetchButton({ url, onFetched }: Props) {
     setState("fetching");
     setErrorMsg("");
     try {
-      const res = await fetch("/api/audio/fetch", {
+      const res = await fetch(apiUrl("/api/audio/fetch"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Fetch failed");
+      let data: Record<string, unknown> = {};
+      try { data = await res.json(); } catch { /* empty body */ }
+      if (!res.ok) throw new Error((data.error as string) ?? `Server error (${res.status})`);
+      if (!data.url) throw new Error("No URL returned from server");
       setState("done");
       onFetched(data.url as string);
       setTimeout(() => setState("idle"), 3000);
