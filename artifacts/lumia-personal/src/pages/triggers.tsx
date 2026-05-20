@@ -1,192 +1,230 @@
-import { Router } from "express";
-import { db } from "@workspace/db";
-import { triggersTable, activityTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
-import { z } from "zod";
+import { useState } from "react";
 import {
-  parseId, nameSchema, hexColorSchema, effectSchema,
-  platformSchema, eventTypeSchema,
-} from "../lib/security";
-import { alertQueue } from "../lib/drivers/alert-queue";
-import { writeLimiter } from "../middlewares/rate-limit";
+  useListTriggers, useCreateTrigger, useUpdateTrigger, useDeleteTrigger, useFireTrigger,
+} from "@workspace/api-client-react";
+import { Zap, Plus, Trash2, Play, ToggleLeft, ToggleRight, Edit } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
 
-const router = Router();
+const EVENT_TYPES = [
+  "follow", "subscribe", "bits", "raid", "donation", "channel_point",
+  "chat_message", "ban", "timeout",
+];
 
-function parseTrigger(t: typeof triggersTable.$inferSelect) {
-  let deviceIds: number[] = [];
-  try {
-    deviceIds = JSON.parse(t.deviceIds) as number[];
-    if (!Array.isArray(deviceIds)) deviceIds = [];
-  } catch {
-    deviceIds = [];
-  }
-  return { ...t, deviceIds, createdAt: t.createdAt.toISOString() };
+const PLATFORMS = ["twitch", "youtube", "kick", "streamlabs", "streamelements"];
+
+const EFFECTS = ["solid", "pulse", "flash", "rainbow", "breathe"];
+
+export default function Triggers() {
+  const { data: triggers, isLoading } = useListTriggers();
+
+  return (
+    <div className="space-y-8 animate-in fade-in duration-300">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Triggers</h1>
+          <p className="text-muted-foreground mt-1">Automate your lights based on streaming events.</p>
+        </div>
+        <AddTriggerModal />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+        {isLoading && <div className="text-muted-foreground">Loading triggers...</div>}
+        {triggers?.length === 0 && !isLoading && (
+          <div className="col-span-full py-12 text-center border-2 border-dashed border-border rounded-lg">
+            <Zap className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+            <h3 className="text-xl font-medium mb-2">No Triggers Yet</h3>
+            <p className="text-muted-foreground mb-6">Create your first trigger to react to stream events with lights.</p>
+            <AddTriggerModal />
+          </div>
+        )}
+        {triggers?.map((trigger) => (
+          <TriggerCard key={trigger.id} trigger={trigger} />
+        ))}
+      </div>
+    </div>
+  );
 }
 
-router.get("/triggers", async (req, res) => {
-  try {
-    const triggers = await db.select().from(triggersTable).orderBy(triggersTable.createdAt);
-    
-    // Cache GET requests for 30 seconds to reduce database load
-    res.set("Cache-Control", "public, max-age=30, s-maxage=30");
-    res.json(triggers.map(parseTrigger));
-  } catch (err) {
-    req.log.error({ err }, "Failed to list triggers");
-    res.status(500).json({ error: "Failed to list triggers" });
-  }
-});
+function TriggerCard({ trigger }: { trigger: any }) {
+  const deleteTrigger = useDeleteTrigger();
+  const updateTrigger = useUpdateTrigger();
+  const fireTrigger = useFireTrigger();
+  const { toast } = useToast();
 
-router.post("/triggers", writeLimiter, async (req, res) => {
-  try {
-    const body = z.object({
-      name: nameSchema,
-      eventType: eventTypeSchema,
-      platform: platformSchema.optional(),
-      enabled: z.boolean().optional(),
-      color: hexColorSchema,
-      brightness: z.number().int().min(0).max(100),
-      durationMs: z.number().int().min(100).max(60_000),
-      effect: effectSchema,
-      returnToIdle: z.boolean().optional(),
-      minAmount: z.number().int().min(0).max(1_000_000).optional(),
-      deviceIds: z.array(z.number().int().min(1).max(2_147_483_647)).max(50).optional(),
-      audioUrl: z.string().url().optional(),
-      audioFile: z.string().optional(),
-      audioVolume: z.number().int().min(0).max(100).optional(),
-    }).strict().parse(req.body);
-
-    const [trigger] = await db.insert(triggersTable).values({
-      name: body.name,
-      eventType: body.eventType,
-      platform: body.platform ?? null,
-      enabled: body.enabled ?? true,
-      color: body.color,
-      brightness: body.brightness,
-      durationMs: body.durationMs,
-      effect: body.effect,
-      returnToIdle: body.returnToIdle ?? true,
-      minAmount: body.minAmount ?? null,
-      deviceIds: JSON.stringify(body.deviceIds ?? []),
-      audioUrl: body.audioUrl ?? null,
-      audioFile: body.audioFile ?? null,
-      audioVolume: body.audioVolume ?? 100,
-    }).returning();
-
-    res.status(201).json(parseTrigger(trigger));
-  } catch (err) {
-    req.log.error({ err }, "Failed to create trigger");
-    res.status(400).json({ error: "Invalid trigger data" });
-  }
-});
-
-router.get("/triggers/:id", async (req, res) => {
-  try {
-    const id = parseId(req.params.id);
-    const [trigger] = await db.select().from(triggersTable).where(eq(triggersTable.id, id));
-    if (!trigger) return res.status(404).json({ error: "Trigger not found" });
-    
-    // Cache individual trigger data for 1 minute
-    res.set("Cache-Control", "public, max-age=60, s-maxage=60");
-    res.json(parseTrigger(trigger));
-  } catch (err) {
-    const status = (err as { statusCode?: number }).statusCode ?? 500;
-    res.status(status).json({ error: status < 500 ? (err as Error).message : "Failed to get trigger" });
-  }
-});
-
-router.patch("/triggers/:id", writeLimiter, async (req, res) => {
-  try {
-    const id = parseId(req.params.id);
-    const body = z.object({
-      name: nameSchema.optional(),
-      platform: platformSchema.optional(),
-      enabled: z.boolean().optional(),
-      color: hexColorSchema.optional(),
-      brightness: z.number().int().min(0).max(100).optional(),
-      durationMs: z.number().int().min(100).max(60_000).optional(),
-      effect: effectSchema.optional(),
-      returnToIdle: z.boolean().optional(),
-      minAmount: z.number().int().min(0).max(1_000_000).optional(),
-      deviceIds: z.array(z.number().int().min(1).max(2_147_483_647)).max(50).optional(),
-      audioUrl: z.string().url().optional(),
-      audioFile: z.string().optional(),
-      audioVolume: z.number().int().min(0).max(100).optional(),
-    }).strict().parse(req.body);
-
-    const updateData: Record<string, unknown> = { ...body };
-    if (body.deviceIds !== undefined) {
-      updateData.deviceIds = JSON.stringify(body.deviceIds);
+  const handleDelete = () => {
+    if (confirm(`Delete trigger "${trigger.name}"?`)) {
+      deleteTrigger.mutate({ id: trigger.id }, {
+        onSuccess: () => toast({ title: `Trigger "${trigger.name}" deleted.` }),
+        onError: () => toast({ title: "Failed to delete trigger", variant: "destructive" }),
+      });
     }
+  };
 
-    const [trigger] = await db.update(triggersTable).set(updateData).where(eq(triggersTable.id, id)).returning();
-    if (!trigger) return res.status(404).json({ error: "Trigger not found" });
-    res.json(parseTrigger(trigger));
-  } catch (err) {
-    const status = (err as { statusCode?: number }).statusCode ?? 400;
-    res.status(status).json({ error: "Failed to update trigger" });
-  }
-});
-
-router.delete("/triggers/:id", writeLimiter, async (req, res) => {
-  try {
-    const id = parseId(req.params.id);
-    const result = await db.delete(triggersTable).where(eq(triggersTable.id, id)).returning();
-    if (!result.length) return res.status(404).json({ error: "Trigger not found" });
-    res.status(204).send();
-  } catch (err) {
-    const status = (err as { statusCode?: number }).statusCode ?? 500;
-    res.status(status).json({ error: "Failed to delete trigger" });
-  }
-});
-
-router.post("/triggers/:id/fire", writeLimiter, async (req, res) => {
-  try {
-    const id = parseId(req.params.id);
-    const [trigger] = await db.select().from(triggersTable).where(eq(triggersTable.id, id));
-    if (!trigger) return res.status(404).json({ error: "Trigger not found" });
-    if (!trigger.enabled) return res.status(400).json({ error: "Trigger is disabled" });
-
-    let deviceIds: number[] = [];
-    try { deviceIds = JSON.parse(trigger.deviceIds) as number[]; } catch { deviceIds = []; }
-
-    let triggerCustomSteps: Array<{ color: string; durationMs: number; brightness?: number }> = [];
-    try { triggerCustomSteps = JSON.parse(trigger.customSteps ?? "[]"); } catch { triggerCustomSteps = []; }
-
-    alertQueue.enqueue(
-      { 
-        color: trigger.color, 
-        brightness: trigger.brightness, 
-        effect: trigger.effect, 
-        durationMs: trigger.durationMs,
-        audioUrl: trigger.audioUrl ?? undefined,
-        audioVolume: trigger.audioVolume ?? 100,
-        ...(triggerCustomSteps.length > 0 ? { customSteps: triggerCustomSteps } : {}),
-      },
-      {
-        deviceIds: deviceIds.length > 0 ? deviceIds : undefined,
-        returnToIdle: trigger.returnToIdle,
-        eventType: trigger.eventType,
-        platform: trigger.platform,
-        username: "manual_test",
-        message: `Manual fire: ${trigger.name}`,
-      }
-    );
-
-    await db.insert(activityTable).values({
-      eventType: trigger.eventType,
-      platform: trigger.platform,
-      username: "manual_test",
-      message: `Manual fire: ${trigger.name}`,
-      colorTriggered: trigger.color,
-      effectTriggered: trigger.effect,
+  const handleToggle = () => {
+    updateTrigger.mutate({ id: trigger.id, data: { enabled: !trigger.enabled } }, {
+      onSuccess: () => toast({ title: `Trigger ${trigger.enabled ? "disabled" : "enabled"}.` }),
+      onError: () => toast({ title: "Failed to update trigger", variant: "destructive" }),
     });
+  };
 
-    req.log.info({ triggerId: id }, "Trigger manually fired");
-    res.json({ success: true, message: `Trigger "${trigger.name}" fired — lights activating` });
-  } catch (err) {
-    const status = (err as { statusCode?: number }).statusCode ?? 500;
-    res.status(status).json({ error: "Failed to fire trigger" });
-  }
-});
+  const handleFire = () => {
+    fireTrigger.mutate({ id: trigger.id }, {
+      onSuccess: () => toast({ title: `Trigger "${trigger.name}" fired!` }),
+      onError: () => toast({ title: "Failed to fire trigger", variant: "destructive" }),
+    });
+  };
 
-export default router;
+  return (
+    <Card className={`border-border bg-card overflow-hidden transition-all ${!trigger.enabled ? "opacity-60" : ""}`}>
+      <div className="h-1 w-full" style={{ backgroundColor: trigger.color }} />
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between">
+          <div>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <span style={{ color: trigger.color }}>{trigger.name}</span>
+            </CardTitle>
+            <CardDescription className="mt-1 capitalize">
+              {trigger.eventType?.replace("_", " ")}
+              {trigger.platform && ` · ${trigger.platform}`}
+            </CardDescription>
+          </div>
+          <div className={`text-xs px-2 py-1 rounded-full font-bold uppercase tracking-wider ${trigger.enabled ? "bg-green-500/10 text-green-500 border border-green-500/20" : "bg-muted text-muted-foreground border border-border"}`}>
+            {trigger.enabled ? "On" : "Off"}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0 space-y-3">
+        <div className="flex flex-wrap gap-1.5 text-xs">
+          <span className="px-2 py-0.5 rounded-full bg-muted border border-border text-muted-foreground capitalize">{trigger.effect}</span>
+          <span className="px-2 py-0.5 rounded-full bg-muted border border-border text-muted-foreground">{trigger.brightness}% bright</span>
+          <span className="px-2 py-0.5 rounded-full bg-muted border border-border text-muted-foreground">{trigger.durationMs}ms</span>
+        </div>
+        <div className="flex items-center gap-2 pt-2 border-t border-border/50">
+          <Button variant="outline" size="sm" onClick={handleFire} disabled={fireTrigger.isPending || !trigger.enabled} className="gap-1.5">
+            <Play className="w-3.5 h-3.5" />
+            Test
+          </Button>
+          <Button variant="outline" size="icon" onClick={handleToggle} disabled={updateTrigger.isPending} title={trigger.enabled ? "Disable" : "Enable"}>
+            {trigger.enabled ? <ToggleRight className="w-4 h-4 text-green-500" /> : <ToggleLeft className="w-4 h-4" />}
+          </Button>
+          <div className="ml-auto">
+            <Button variant="ghost" size="icon" onClick={handleDelete} className="text-destructive hover:bg-destructive/10 hover:text-destructive">
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AddTriggerModal() {
+  const [open, setOpen] = useState(false);
+  const create = useCreateTrigger();
+  const { toast } = useToast();
+
+  const [name, setName] = useState("");
+  const [eventType, setEventType] = useState("follow");
+  const [platform, setPlatform] = useState("twitch");
+  const [color, setColor] = useState("#9146FF");
+  const [brightness, setBrightness] = useState(100);
+  const [durationMs, setDurationMs] = useState(3000);
+  const [effect, setEffect] = useState("pulse");
+
+  const handleSave = () => {
+    create.mutate({
+      data: { name, eventType, platform, color, brightness, durationMs, effect, enabled: true },
+    }, {
+      onSuccess: () => {
+        toast({ title: "Trigger created!" });
+        setOpen(false);
+        setName(""); setEventType("follow"); setPlatform("twitch");
+        setColor("#9146FF"); setBrightness(100); setDurationMs(3000); setEffect("pulse");
+      },
+      onError: () => toast({ title: "Failed to create trigger", variant: "destructive" }),
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button className="gap-2">
+          <Plus className="w-4 h-4" />
+          Add Trigger
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="bg-card border-border sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>New Trigger</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <Label>Name</Label>
+            <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. New Follower" />
+          </div>
+          <div className="grid gap-2">
+            <Label>Event Type</Label>
+            <select
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+              value={eventType} onChange={e => setEventType(e.target.value)}
+            >
+              {EVENT_TYPES.map(t => (
+                <option key={t} value={t}>{t.replace("_", " ")}</option>
+              ))}
+            </select>
+          </div>
+          <div className="grid gap-2">
+            <Label>Platform</Label>
+            <select
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+              value={platform} onChange={e => setPlatform(e.target.value)}
+            >
+              {PLATFORMS.map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label>Color</Label>
+              <div className="flex items-center gap-2">
+                <input type="color" value={color} onChange={e => setColor(e.target.value)} className="h-10 w-10 rounded border border-input cursor-pointer" />
+                <Input value={color} onChange={e => setColor(e.target.value)} className="font-mono" />
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label>Effect</Label>
+              <select
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                value={effect} onChange={e => setEffect(e.target.value)}
+              >
+                {EFFECTS.map(ef => (
+                  <option key={ef} value={ef}>{ef}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label>Brightness ({brightness}%)</Label>
+              <Input type="number" min={0} max={100} value={brightness} onChange={e => setBrightness(Number(e.target.value))} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Duration (ms)</Label>
+              <Input type="number" min={100} max={60000} value={durationMs} onChange={e => setDurationMs(Number(e.target.value))} />
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button onClick={handleSave} disabled={create.isPending || !name}>Create Trigger</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
