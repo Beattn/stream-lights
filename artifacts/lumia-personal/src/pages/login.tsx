@@ -108,7 +108,6 @@ export default function Login() {
         </div>
 
         <p className="text-center text-xs text-muted-foreground mt-6">
-          Use the credentials from your Supabase Auth dashboard
         </p>
       </div>
     </div>
