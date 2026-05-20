@@ -16,7 +16,10 @@ function getSupabase() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("Storage not configured (missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY)");
-  return createClient(url, key, { auth: { persistSession: false } });
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${key}` } },
+  });
 }
 
 async function ensureBucket(supabase: ReturnType<typeof createClient>) {
@@ -135,6 +138,8 @@ router.post("/audio/fetch", writeLimiter, async (req: Request, res: Response) =>
     const msg = (err as Error).message ?? "";
     if (msg.includes("timed out")) {
       res.status(504).json({ error: msg });
+    } else if (msg.includes("429") || msg.includes("Too Many Requests")) {
+      res.status(429).json({ error: "YouTube is rate-limiting this server right now. Please wait a few minutes and try again, or download the file yourself and upload it directly." });
     } else if (msg.includes("private") || msg.includes("age-restricted") || msg.includes("unavailable")) {
       res.status(400).json({ error: `Can't access this video: ${msg}` });
     } else {

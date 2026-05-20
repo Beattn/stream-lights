@@ -31,6 +31,25 @@ function isWebUrl(url: string) {
   return url.startsWith("http://") || url.startsWith("https://") || url.startsWith("blob:");
 }
 
+const STREAMING_PATTERNS = [
+  /youtube\.com/i, /youtu\.be/i,
+  /soundcloud\.com/i,
+  /open\.spotify\.com/i,
+  /music\.apple\.com/i,
+  /tidal\.com/i,
+  /deezer\.com/i,
+  /twitch\.tv/i,
+  /vimeo\.com/i,
+  /dailymotion\.com/i,
+];
+
+function isStreamingUrl(url: string) {
+  if (!url) return false;
+  const DIRECT_EXT = /\.(mp3|wav|ogg|aac|flac|m4a|webm|opus)(\?.*)?$/i;
+  if (DIRECT_EXT.test(url)) return false;
+  return STREAMING_PATTERNS.some(p => p.test(url));
+}
+
 /** Manual start/end inputs used when we can't load the audio in the browser */
 function ManualInputs({
   startMs,
@@ -90,7 +109,7 @@ function ManualInputs({
 
 export default function AudioClipPicker({ url, startMs, endMs, onChange }: Props) {
   const [duration, setDuration] = useState(0);
-  const [loadState, setLoadState] = useState<"idle" | "loading" | "ready" | "error" | "local">("idle");
+  const [loadState, setLoadState] = useState<"idle" | "loading" | "ready" | "error" | "local" | "streaming">("idle");
   const [previewing, setPreviewing] = useState(false);
   // blob URL created from a picked local file, used for browser preview only
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
@@ -118,8 +137,11 @@ export default function AudioClipPicker({ url, startMs, endMs, onChange }: Props
   useEffect(() => {
     const src = blobUrl ?? url;
     if (!src || (!isWebUrl(src) && !blobUrl)) {
-      // Local path — skip browser load, just show manual inputs
       setLoadState("local");
+      return;
+    }
+    if (!blobUrl && isStreamingUrl(src)) {
+      setLoadState("streaming");
       return;
     }
 
@@ -206,6 +228,43 @@ export default function AudioClipPicker({ url, startMs, endMs, onChange }: Props
     setBlobUrl(newBlob);
     setLoadState("loading");
   };
+
+  // ── Streaming URL (YouTube, Spotify, etc.) ──────────────────────────────
+  if (loadState === "streaming") {
+    return (
+      <div className="space-y-2">
+        <ManualInputs
+          startMs={startMs}
+          endMs={endMs}
+          onChange={onChange}
+          hint={
+            <div className="flex items-start gap-2 rounded-md bg-blue-500/10 border border-blue-500/20 px-3 py-2">
+              <p className="text-xs text-blue-400 leading-relaxed">
+                This is a streaming URL — the browser can't play it directly.
+                Use the <strong>Download from YouTube</strong> button above to save a hosted copy first,
+                or{" "}
+                <button
+                  type="button"
+                  className="underline hover:opacity-80 transition-opacity"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  upload your own file
+                </button>
+                {" "}to get the visual timeline.
+              </p>
+            </div>
+          }
+        />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="audio/*"
+          className="hidden"
+          onChange={handleFilePick}
+        />
+      </div>
+    );
+  }
 
   // ── Local path: no browser preview possible ─────────────────────────────
   if (loadState === "local") {
