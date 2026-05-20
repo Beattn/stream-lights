@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { randomUUID } from "crypto";
-import { objectStorageClient } from "../lib/objectStorage";
+import { createClient } from "@supabase/supabase-js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -17,6 +17,15 @@ const EXT_MAP: Record<string, string> = {
   "audio/flac": "flac", "audio/x-flac": "flac", "audio/webm": "webm",
   "audio/mp4": "m4a",
 };
+
+const AUDIO_BUCKET = process.env.SUPABASE_AUDIO_BUCKET ?? "audio";
+
+function getSupabase() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Supabase not configured");
+  return createClient(url, key, { auth: { persistSession: false } });
+}
 
 router.post(
   "/audio/upload",
@@ -34,31 +43,22 @@ router.post(
       return;
     }
 
-    const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
-    if (!bucketId) {
-      res.status(500).json({ error: "Storage not configured" });
-      return;
-    }
-
     try {
+      const supabase = getSupabase();
       const ext = EXT_MAP[mimeType] ?? "mp3";
-      const objectName = `audio/${randomUUID()}.${ext}`;
+      const objectPath = `${randomUUID()}.${ext}`;
 
-      const bucket = objectStorageClient.bucket(bucketId);
-      const gcsFile = bucket.file(objectName);
+      const { error } = await supabase.storage
+        .from(AUDIO_BUCKET)
+        .upload(objectPath, file.buffer, {
+          contentType: mimeType,
+          upsert: false,
+        });
 
-      await gcsFile.save(file.buffer, {
-        contentType: mimeType,
-        metadata: { originalName: file.originalname },
-      });
+      if (error) throw error;
 
-      // Build the public serve URL using the request host
-      const proto = req.headers["x-forwarded-proto"] ?? req.protocol ?? "https";
-      const host = req.headers["x-forwarded-host"] ?? req.headers.host ?? "";
-      const base = `${proto}://${host}`;
-      const serveUrl = `${base}/api/storage/objects/${objectName}`;
-
-      res.json({ url: serveUrl });
+      const { data } = supabase.storage.from(AUDIO_BUCKET).getPublicUrl(objectPath);
+      res.json({ url: data.publicUrl });
     } catch (err) {
       req.log.error({ err }, "Audio upload failed");
       res.status(500).json({ error: "Upload failed" });

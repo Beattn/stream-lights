@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { randomUUID } from "crypto";
-import { objectStorageClient } from "../lib/objectStorage";
+import { createClient } from "@supabase/supabase-js";
 import ytdl from "@distube/ytdl-core";
 import { z } from "zod";
 import { writeLimiter } from "../middlewares/rate-limit";
@@ -11,6 +11,15 @@ const YOUTUBE_REGEX = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/
 
 const Body = z.object({ url: z.string().url() });
 
+const AUDIO_BUCKET = process.env.SUPABASE_AUDIO_BUCKET ?? "audio";
+
+function getSupabase() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Supabase not configured");
+  return createClient(url, key, { auth: { persistSession: false } });
+}
+
 router.post("/audio/fetch", writeLimiter, async (req: Request, res: Response) => {
   const parsed = Body.safeParse(req.body);
   if (!parsed.success) {
@@ -19,17 +28,11 @@ router.post("/audio/fetch", writeLimiter, async (req: Request, res: Response) =>
   }
 
   const { url } = parsed.data;
-  const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
-  if (!bucketId) {
-    res.status(500).json({ error: "Storage not configured." });
-    return;
-  }
-
-  const bucket = objectStorageClient.bucket(bucketId);
 
   try {
+    const supabase = getSupabase();
+
     if (YOUTUBE_REGEX.test(url)) {
-      // ── YouTube: extract best audio-only stream ──────────────────────
       if (!ytdl.validateURL(url)) {
         res.status(400).json({ error: "Invalid YouTube URL." });
         return;
@@ -37,29 +40,25 @@ router.post("/audio/fetch", writeLimiter, async (req: Request, res: Response) =>
 
       const info = await ytdl.getInfo(url);
       const title = info.videoDetails.title.slice(0, 80).replace(/[^\w\s-]/g, "").trim();
-      const objectName = `audio/${randomUUID()}-${title.replace(/\s+/g, "-")}.mp3`;
-      const gcsFile = bucket.file(objectName);
+      const objectPath = `${randomUUID()}-${title.replace(/\s+/g, "-")}.mp3`;
 
+      const chunks: Buffer[] = [];
       await new Promise<void>((resolve, reject) => {
-        const stream = ytdl(url, {
-          filter: "audioonly",
-          quality: "highestaudio",
-        });
-        const writeStream = gcsFile.createWriteStream({
-          contentType: "audio/mpeg",
-          metadata: { originalUrl: url, title },
-        });
-        stream.pipe(writeStream);
-        writeStream.on("finish", resolve);
-        writeStream.on("error", reject);
+        const stream = ytdl(url, { filter: "audioonly", quality: "highestaudio" });
+        stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+        stream.on("end", resolve);
         stream.on("error", reject);
       });
+      const buffer = Buffer.concat(chunks);
 
-      const proto = (req.headers["x-forwarded-proto"] as string) ?? req.protocol ?? "https";
-      const host = (req.headers["x-forwarded-host"] as string) ?? (req.headers.host as string) ?? "";
-      const serveUrl = `${proto}://${host}/api/storage/objects/${objectName}`;
+      const { error } = await supabase.storage
+        .from(AUDIO_BUCKET)
+        .upload(objectPath, buffer, { contentType: "audio/mpeg", upsert: false });
 
-      res.json({ url: serveUrl, title });
+      if (error) throw error;
+
+      const { data } = supabase.storage.from(AUDIO_BUCKET).getPublicUrl(objectPath);
+      res.json({ url: data.publicUrl, title });
       return;
     }
 
@@ -86,22 +85,19 @@ router.post("/audio/fetch", writeLimiter, async (req: Request, res: Response) =>
       "audio/webm": "webm", "audio/mp4": "m4a", "video/webm": "webm",
     };
     const ext = extMap[contentType.split(";")[0].trim()] ?? "mp3";
-    const objectName = `audio/${randomUUID()}.${ext}`;
-    const gcsFile = bucket.file(objectName);
+    const objectPath = `${randomUUID()}.${ext}`;
 
     const arrayBuffer = await fetchRes.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    await gcsFile.save(buffer, {
-      contentType,
-      metadata: { originalUrl: url },
-    });
+    const { error } = await supabase.storage
+      .from(AUDIO_BUCKET)
+      .upload(objectPath, buffer, { contentType, upsert: false });
 
-    const proto = (req.headers["x-forwarded-proto"] as string) ?? req.protocol ?? "https";
-    const host = (req.headers["x-forwarded-host"] as string) ?? (req.headers.host as string) ?? "";
-    const serveUrl = `${proto}://${host}/api/storage/objects/${objectName}`;
+    if (error) throw error;
 
-    res.json({ url: serveUrl });
+    const { data } = supabase.storage.from(AUDIO_BUCKET).getPublicUrl(objectPath);
+    res.json({ url: data.publicUrl });
   } catch (err) {
     req.log.error({ err }, "Audio fetch failed");
     const msg = (err as Error).message ?? "";
