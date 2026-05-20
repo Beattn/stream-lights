@@ -242,6 +242,9 @@ importers:
 
   artifacts/desktop-agent:
     dependencies:
+      '@distube/ytdl-core':
+        specifier: ^4.16.12
+        version: 4.16.12
       '@supabase/supabase-js':
         specifier: ^2.106.0
         version: 2.106.0
