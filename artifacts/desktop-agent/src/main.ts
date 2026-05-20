@@ -1,3 +1,9 @@
+// Polyfill WebSocket for Node.js < 22 before any Supabase client is created
+import { WebSocket as WsWebSocket } from "ws";
+if (typeof globalThis.WebSocket === "undefined") {
+  (globalThis as unknown as Record<string, unknown>).WebSocket = WsWebSocket;
+}
+
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell, dialog, Notification } from "electron";
 import path from "path";
 import fs from "fs";
