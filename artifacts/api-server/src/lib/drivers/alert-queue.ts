@@ -1,5 +1,5 @@
 import { fireLights, type LightParams, type FireOptions } from "./light-engine";
-import { logger } from "./logger";
+import { logger } from "../logger";
 
 interface QueuedAlert {
   params: LightParams;

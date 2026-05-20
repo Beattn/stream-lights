@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { triggersTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
-import { alertQueue } from "../lib/alert-queue";
+import { alertQueue } from "../lib/drivers/alert-queue";
 import { logger } from "../lib/logger";
 import crypto from "crypto";
 

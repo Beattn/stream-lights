@@ -7,7 +7,7 @@ import {
   parseId, nameSchema, hexColorSchema, effectSchema,
   platformSchema, eventTypeSchema,
 } from "../lib/security";
-import { alertQueue } from "../lib/alert-queue";
+import { alertQueue } from "../lib/drivers/alert-queue";
 import { writeLimiter } from "../middlewares/rate-limit";
 
 const router = Router();

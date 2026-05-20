@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
 import { hexColorSchema, effectSchema } from "../lib/security";
-import { alertQueue } from "../lib/alert-queue";
-import { returnToIdle } from "../lib/light-engine";
+import { alertQueue } from "../lib/drivers/alert-queue";
+import { returnToIdle } from "../lib/drivers/light-engine";
 import { writeLimiter } from "../middlewares/rate-limit";
 import { db } from "@workspace/db";
 import { activityTable } from "@workspace/db";

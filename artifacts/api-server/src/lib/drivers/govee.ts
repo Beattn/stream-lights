@@ -1,5 +1,5 @@
 import type { Device } from "@workspace/db";
-import type { LightParams } from "../light-engine";
+import type { LightParams } from "./light-engine";
 
 const BASE = "https://developer-api.govee.com/v1";
 

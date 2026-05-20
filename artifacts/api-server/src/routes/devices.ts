@@ -4,7 +4,7 @@ import { devicesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { parseId, nameSchema, hexColorSchema, effectSchema, omitKeys } from "../lib/security";
-import { alertQueue } from "../lib/alert-queue";
+import { alertQueue } from "../lib/drivers/alert-queue";
 import { writeLimiter } from "../middlewares/rate-limit";
 
 const router = Router();

@@ -1,5 +1,5 @@
 import type { Device } from "@workspace/db";
-import type { LightParams } from "../light-engine";
+import type { LightParams } from "./light-engine";
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
   return {

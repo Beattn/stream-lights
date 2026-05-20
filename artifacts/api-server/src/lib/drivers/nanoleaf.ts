@@ -1,5 +1,5 @@
 import type { Device } from "@workspace/db";
-import type { LightParams } from "../light-engine";
+import type { LightParams } from "./light-engine";
 
 function hexToHSV(hex: string): { h: number; s: number; v: number } {
   const r = parseInt(hex.slice(1, 3), 16) / 255;
