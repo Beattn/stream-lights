@@ -79,6 +79,8 @@ async function buildAll() {
       "kerberos",
       "leveldown",
       "miniflare",
+      "multer",
+      "@distube/ytdl-core",
       "mysql2",
       "newrelic",
       "odbc",
