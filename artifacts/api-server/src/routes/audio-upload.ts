@@ -45,6 +45,10 @@ router.post(
 
     try {
       const supabase = getSupabase();
+
+      // Auto-create bucket if it doesn't exist (no-op if already present)
+      await supabase.storage.createBucket(AUDIO_BUCKET, { public: true }).catch(() => {});
+
       const ext = EXT_MAP[mimeType] ?? "mp3";
       const objectPath = `${randomUUID()}.${ext}`;
 

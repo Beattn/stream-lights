@@ -1,13 +1,10 @@
 import { useRef, useState } from "react";
 import { Upload, Loader2, CheckCircle, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/lib/supabase";
 
 interface Props {
   onUploaded: (publicUrl: string) => void;
 }
-
-const BUCKET = "audio-files";
 
 export default function AudioUploadButton({ onUploaded }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -15,41 +12,27 @@ export default function AudioUploadButton({ onUploaded }: Props) {
   const [errorMsg, setErrorMsg] = useState("");
 
   const upload = async (file: File) => {
-    if (!supabase) {
-      setErrorMsg("Supabase not configured — use a URL instead.");
-      setState("error");
-      return;
-    }
-
     setState("uploading");
     setErrorMsg("");
 
-    const ext = file.name.split(".").pop() ?? "mp3";
-    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const formData = new FormData();
+    formData.append("file", file);
 
-    // Try to create the bucket (no-op if it already exists)
-    await supabase.storage.createBucket(BUCKET, { public: true }).catch(() => {});
+    try {
+      const res = await fetch("/api/audio/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Upload failed");
 
-    const { error: uploadError } = await supabase.storage
-      .from(BUCKET)
-      .upload(fileName, file, { cacheControl: "3600", upsert: false });
-
-    if (uploadError) {
-      setErrorMsg(uploadError.message);
+      setState("done");
+      onUploaded(data.url as string);
+      setTimeout(() => setState("idle"), 2500);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Upload failed");
       setState("error");
-      return;
     }
-
-    const { data } = supabase.storage.from(BUCKET).getPublicUrl(fileName);
-    if (!data?.publicUrl) {
-      setErrorMsg("Uploaded but couldn't get a public URL.");
-      setState("error");
-      return;
-    }
-
-    setState("done");
-    onUploaded(data.publicUrl);
-    setTimeout(() => setState("idle"), 2500);
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {

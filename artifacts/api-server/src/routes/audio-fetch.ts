@@ -32,6 +32,9 @@ router.post("/audio/fetch", writeLimiter, async (req: Request, res: Response) =>
   try {
     const supabase = getSupabase();
 
+    // Auto-create bucket if it doesn't exist (no-op if already present)
+    await supabase.storage.createBucket(AUDIO_BUCKET, { public: true }).catch(() => {});
+
     if (YOUTUBE_REGEX.test(url)) {
       if (!ytdl.validateURL(url)) {
         res.status(400).json({ error: "Invalid YouTube URL." });
