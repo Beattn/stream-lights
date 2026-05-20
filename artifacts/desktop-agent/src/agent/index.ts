@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { applyLight, applyIdle, type Device, type LightParams } from "./drivers";
+import { audioPlayer } from "./audio";
 import { KickClient } from "./kick";
 import { TwitchClient } from "./twitch";
 
@@ -16,6 +17,9 @@ interface Trigger {
   returnToIdle: boolean;
   minAmount: number | null;
   deviceIds: number[];
+  audioUrl?: string | null;
+  audioFile?: string | null;
+  audioVolume?: number;
 }
 
 interface Settings {
@@ -42,6 +46,9 @@ interface Command {
   effect: string;
   enabled: boolean;
   cooldownSeconds: number;
+  audioUrl?: string | null;
+  audioFile?: string | null;
+  audioVolume?: number;
 }
 
 type StatusCallback = (status: AgentStatus) => void;
@@ -81,16 +88,33 @@ class AlertQueue {
         ? agent.devices.filter((d) => item.deviceIds!.includes(d.id) && d.enabled)
         : agent.devices.filter((d) => d.enabled);
 
+      // Fire all devices in parallel - this is the critical path for alert response
+      // Promise.allSettled ensures all devices get the command even if some fail
       await Promise.allSettled(devices.map((d) => applyLight(d, item.params)));
+
+      // Start audio playback in background (fire-and-forget) - don't wait for completion
+      // This ensures audio starts immediately without blocking other operations
+      if (item.params.audioUrl) {
+        // Fire and forget - don't await
+        audioPlayer.play({ url: item.params.audioUrl, volume: item.params.audioVolume ?? 100 }).catch(() => {
+          // Silently handle audio errors to not block alert processing
+        });
+      }
+
+      // Wait for light duration while processing next alerts
       await sleep(item.params.durationMs);
 
+      // Return to idle only if enabled and no more alerts pending
       if (item.returnToIdle && agent.settings?.idleEnabled && this.queue.length === 0) {
         await Promise.allSettled(
           devices.map((d) => applyIdle(d, agent.settings!.idleColor, agent.settings!.idleBrightness))
         );
       }
     } catch (err) {
-      console.error("[Queue] Error:", err);
+      // Only log critical errors to avoid performance impact
+      if (err instanceof Error && !err.message.includes("Audio")) {
+        console.error("[Queue] Critical error:", err.message);
+      }
     }
     this.processNext();
   }
@@ -218,7 +242,14 @@ class StreamLightsAgent {
 
     for (const trigger of matching) {
       queue.enqueue(
-        { color: trigger.color, brightness: trigger.brightness, effect: trigger.effect, durationMs: trigger.durationMs },
+        { 
+          color: trigger.color, 
+          brightness: trigger.brightness, 
+          effect: trigger.effect, 
+          durationMs: trigger.durationMs,
+          audioUrl: trigger.audioUrl ?? undefined,
+          audioVolume: trigger.audioVolume ?? 100,
+        },
         { deviceIds: trigger.deviceIds.length > 0 ? trigger.deviceIds : undefined, returnToIdle: trigger.returnToIdle, key: `${eventType}:${platform}` }
       );
     }
@@ -236,7 +267,14 @@ class StreamLightsAgent {
 
     commandCooldowns.set(command.id, now);
     queue.enqueue(
-      { color: command.color, brightness: command.brightness, effect: command.effect, durationMs: command.durationMs },
+      { 
+        color: command.color, 
+        brightness: command.brightness, 
+        effect: command.effect, 
+        durationMs: command.durationMs,
+        audioUrl: command.audioUrl ?? undefined,
+        audioVolume: command.audioVolume ?? 100,
+      },
       { returnToIdle: true, key: `cmd:${cmd}` }
     );
 

@@ -15,6 +15,9 @@ export const triggersTable = pgTable("triggers", {
   returnToIdle: boolean("return_to_idle").notNull().default(true),
   minAmount: integer("min_amount"),
   deviceIds: text("device_ids").notNull().default("[]"),
+  audioUrl: text("audio_url"),
+  audioFile: text("audio_file"),
+  audioVolume: integer("audio_volume").default(100),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

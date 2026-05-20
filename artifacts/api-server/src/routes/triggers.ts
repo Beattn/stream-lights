@@ -26,6 +26,9 @@ function parseTrigger(t: typeof triggersTable.$inferSelect) {
 router.get("/triggers", async (req, res) => {
   try {
     const triggers = await db.select().from(triggersTable).orderBy(triggersTable.createdAt);
+    
+    // Cache GET requests for 30 seconds to reduce database load
+    res.set("Cache-Control", "public, max-age=30, s-maxage=30");
     res.json(triggers.map(parseTrigger));
   } catch (err) {
     req.log.error({ err }, "Failed to list triggers");
@@ -47,6 +50,9 @@ router.post("/triggers", writeLimiter, async (req, res) => {
       returnToIdle: z.boolean().optional(),
       minAmount: z.number().int().min(0).max(1_000_000).optional(),
       deviceIds: z.array(z.number().int().min(1).max(2_147_483_647)).max(50).optional(),
+      audioUrl: z.string().url().optional(),
+      audioFile: z.string().optional(),
+      audioVolume: z.number().int().min(0).max(100).optional(),
     }).strict().parse(req.body);
 
     const [trigger] = await db.insert(triggersTable).values({
@@ -61,6 +67,9 @@ router.post("/triggers", writeLimiter, async (req, res) => {
       returnToIdle: body.returnToIdle ?? true,
       minAmount: body.minAmount ?? null,
       deviceIds: JSON.stringify(body.deviceIds ?? []),
+      audioUrl: body.audioUrl ?? null,
+      audioFile: body.audioFile ?? null,
+      audioVolume: body.audioVolume ?? 100,
     }).returning();
 
     res.status(201).json(parseTrigger(trigger));
@@ -75,6 +84,9 @@ router.get("/triggers/:id", async (req, res) => {
     const id = parseId(req.params.id);
     const [trigger] = await db.select().from(triggersTable).where(eq(triggersTable.id, id));
     if (!trigger) return res.status(404).json({ error: "Trigger not found" });
+    
+    // Cache individual trigger data for 1 minute
+    res.set("Cache-Control", "public, max-age=60, s-maxage=60");
     res.json(parseTrigger(trigger));
   } catch (err) {
     const status = (err as { statusCode?: number }).statusCode ?? 500;
@@ -96,6 +108,9 @@ router.patch("/triggers/:id", writeLimiter, async (req, res) => {
       returnToIdle: z.boolean().optional(),
       minAmount: z.number().int().min(0).max(1_000_000).optional(),
       deviceIds: z.array(z.number().int().min(1).max(2_147_483_647)).max(50).optional(),
+      audioUrl: z.string().url().optional(),
+      audioFile: z.string().optional(),
+      audioVolume: z.number().int().min(0).max(100).optional(),
     }).strict().parse(req.body);
 
     const updateData: Record<string, unknown> = { ...body };
@@ -135,7 +150,14 @@ router.post("/triggers/:id/fire", writeLimiter, async (req, res) => {
     try { deviceIds = JSON.parse(trigger.deviceIds) as number[]; } catch { deviceIds = []; }
 
     alertQueue.enqueue(
-      { color: trigger.color, brightness: trigger.brightness, effect: trigger.effect, durationMs: trigger.durationMs },
+      { 
+        color: trigger.color, 
+        brightness: trigger.brightness, 
+        effect: trigger.effect, 
+        durationMs: trigger.durationMs,
+        audioUrl: trigger.audioUrl ?? undefined,
+        audioVolume: trigger.audioVolume ?? 100,
+      },
       {
         deviceIds: deviceIds.length > 0 ? deviceIds : undefined,
         returnToIdle: trigger.returnToIdle,

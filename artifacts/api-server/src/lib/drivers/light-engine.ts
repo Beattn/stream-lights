@@ -13,6 +13,8 @@ export interface LightParams {
   brightness: number;
   effect: string;
   durationMs: number;
+  audioUrl?: string;
+  audioVolume?: number;
 }
 
 export interface FireOptions {

@@ -22,6 +22,21 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    // Optimize bundle splitting for faster page loads
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Separate vendor libraries for better caching
+          react: ["react", "react-dom"],
+          // Separate UI libraries
+          ui: ["lucide-react"],
+        },
+      },
+    },
+    // Enable minification for smaller bundle
+    minify: "terser",
+    // Optimize chunk sizes
+    chunkSizeWarningLimit: 500,
   },
   server: {
     port,

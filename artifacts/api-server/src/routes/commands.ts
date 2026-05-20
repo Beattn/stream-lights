@@ -21,6 +21,9 @@ function serializeCommand(c: typeof commandsTable.$inferSelect) {
 router.get("/commands", async (req, res) => {
   try {
     const commands = await db.select().from(commandsTable).orderBy(commandsTable.createdAt);
+    
+    // Cache GET requests for 30 seconds
+    res.set("Cache-Control", "public, max-age=30, s-maxage=30");
     res.json(commands.map(serializeCommand));
   } catch (err) {
     req.log.error({ err }, "Failed to list commands");
@@ -39,6 +42,9 @@ router.post("/commands", writeLimiter, async (req, res) => {
       effect: effectSchema,
       enabled: z.boolean().optional(),
       cooldownSeconds: z.number().int().min(0).max(86_400).optional(),
+      audioUrl: z.string().url().optional(),
+      audioFile: z.string().optional(),
+      audioVolume: z.number().int().min(0).max(100).optional(),
     }).strict().parse(req.body);
 
     const normalized = body.command.startsWith("!") ? body.command : `!${body.command}`;
@@ -52,6 +58,9 @@ router.post("/commands", writeLimiter, async (req, res) => {
       effect: body.effect,
       enabled: body.enabled ?? true,
       cooldownSeconds: body.cooldownSeconds ?? 30,
+      audioUrl: body.audioUrl ?? null,
+      audioFile: body.audioFile ?? null,
+      audioVolume: body.audioVolume ?? 100,
     }).returning();
 
     res.status(201).json(serializeCommand(command));
@@ -73,6 +82,9 @@ router.patch("/commands/:id", writeLimiter, async (req, res) => {
       effect: effectSchema.optional(),
       enabled: z.boolean().optional(),
       cooldownSeconds: z.number().int().min(0).max(86_400).optional(),
+      audioUrl: z.string().url().optional(),
+      audioFile: z.string().optional(),
+      audioVolume: z.number().int().min(0).max(100).optional(),
     }).strict().parse(req.body);
 
     const updateData: Record<string, unknown> = { ...body };

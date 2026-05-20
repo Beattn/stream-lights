@@ -13,6 +13,9 @@ export const commandsTable = pgTable("commands", {
   enabled: boolean("enabled").notNull().default(true),
   cooldownSeconds: integer("cooldown_seconds").notNull().default(30),
   usageCount: integer("usage_count").notNull().default(0),
+  audioUrl: text("audio_url"),
+  audioFile: text("audio_file"),
+  audioVolume: integer("audio_volume").default(100),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
