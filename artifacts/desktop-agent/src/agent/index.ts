@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import WebSocket from "ws";
 import { applyLight, applyIdle, type Device, type LightParams } from "./drivers";
 import { audioPlayer } from "./audio";
 import { KickClient } from "./kick";
@@ -158,7 +159,10 @@ class StreamLightsAgent {
     console.log("[Agent] Starting...");
 
     try {
-      this.supabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
+      this.supabase = createClient(supabaseUrl, supabaseKey, {
+        auth: { persistSession: false },
+        realtime: { transport: WebSocket },
+      });
       await this.loadConfig();
       this._running = true;
       this.startPlatforms();

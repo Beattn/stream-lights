@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { createClient } from "@supabase/supabase-js";
+import ws from "ws";
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -9,6 +10,7 @@ let supabase: ReturnType<typeof createClient> | null = null;
 if (supabaseUrl && supabaseServiceKey) {
   supabase = createClient(supabaseUrl, supabaseServiceKey, {
     auth: { persistSession: false },
+    realtime: { transport: ws },
   });
 }
 
