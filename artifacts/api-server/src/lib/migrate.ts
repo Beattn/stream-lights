@@ -10,6 +10,10 @@ export async function runMigrations(): Promise<void> {
         ADD COLUMN IF NOT EXISTS custom_steps text DEFAULT '[]';
     `);
     await client.query(`
+      ALTER TABLE triggers
+        ADD COLUMN IF NOT EXISTS reward_name text;
+    `);
+    await client.query(`
       ALTER TABLE commands
         ADD COLUMN IF NOT EXISTS custom_steps text DEFAULT '[]';
     `);

@@ -19,6 +19,7 @@ interface Trigger {
   effect: string;
   returnToIdle: boolean;
   minAmount: number | null;
+  rewardName: string | null;
   deviceIds: number[];
   audioUrl?: string | null;
   audioFile?: string | null;
@@ -274,6 +275,10 @@ class StreamLightsAgent {
       if (t.eventType !== eventType) return false;
       if (t.platform && t.platform !== platform) return false;
       if (t.minAmount && amount !== undefined && amount < t.minAmount) return false;
+      // For channel_point triggers: if rewardName is set, match it case-insensitively
+      if (eventType === "channel_point" && t.rewardName) {
+        if (message.toLowerCase() !== t.rewardName.toLowerCase()) return false;
+      }
       return true;
     });
 

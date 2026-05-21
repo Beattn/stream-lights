@@ -16,9 +16,19 @@ import AudioFetchButton, { isNonAudioUrl } from "@/components/audio-fetch-button
 import { apiUrl } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 
-const EVENT_TYPES = [
-  "follow", "subscribe", "subscribe_gift", "bits", "raid", "donation",
-  "channel_point", "chat_message", "ban", "timeout",
+const EVENT_TYPES: { value: string; label: string }[] = [
+  { value: "follow",          label: "Follow" },
+  { value: "subscribe",       label: "Subscribe" },
+  { value: "subscribe_gift",  label: "Gift Sub" },
+  { value: "bits",            label: "Bits (Twitch)" },
+  { value: "raid",            label: "Raid" },
+  { value: "donation",        label: "Donation" },
+  { value: "channel_point",   label: "Channel Point (Kick)" },
+  { value: "chat_message",    label: "Chat Message" },
+  { value: "stream_live",     label: "Stream Live" },
+  { value: "host",            label: "Host" },
+  { value: "ban",             label: "Ban" },
+  { value: "timeout",         label: "Timeout" },
 ];
 
 const PLATFORMS = ["twitch", "youtube", "kick", "streamlabs", "streamelements"];
@@ -148,9 +158,12 @@ function TriggerCard({ trigger }: { trigger: any }) {
             )}
             <div className="min-w-0">
               <CardTitle className="text-base truncate">{trigger.name}</CardTitle>
-              <CardDescription className="mt-0.5 capitalize text-xs">
-                {trigger.eventType?.replace("_", " ")}
+              <CardDescription className="mt-0.5 text-xs">
+                {EVENT_TYPES.find(t => t.value === trigger.eventType)?.label ?? trigger.eventType?.replace(/_/g, " ")}
                 {trigger.platform && ` · ${trigger.platform}`}
+                {trigger.rewardName && (
+                  <span className="ml-1 normal-case text-primary/80">· "{trigger.rewardName}"</span>
+                )}
               </CardDescription>
             </div>
           </div>
@@ -203,6 +216,7 @@ function AddTriggerModal() {
   const [name, setName] = useState("");
   const [eventType, setEventType] = useState("follow");
   const [platform, setPlatform] = useState("kick");
+  const [rewardName, setRewardName] = useState("");
   const [color, setColor] = useState("#53FC18");
   const [brightness, setBrightness] = useState(100);
   const [durationMs, setDurationMs] = useState(3000);
@@ -216,6 +230,7 @@ function AddTriggerModal() {
 
   const reset = () => {
     setName(""); setEventType("follow"); setPlatform("kick");
+    setRewardName("");
     setColor("#53FC18"); setBrightness(100); setDurationMs(3000);
     setEffect("pulse"); setCustomSteps(DEFAULT_STEPS);
     setAudioUrl(""); setAudioVolume(80);
@@ -249,6 +264,7 @@ function AddTriggerModal() {
         durationMs: effect === "custom" ? totalCustomMs : durationMs,
         effect, enabled: true,
         customSteps: effect === "custom" ? JSON.stringify(customSteps) : "[]",
+        ...(eventType === "channel_point" && rewardName.trim() ? { rewardName: rewardName.trim() } : {}),
         ...(audioUrl ? { audioUrl, audioVolume, audioStartMs, audioEndMs } : {}),
       } as any,
     }, {
@@ -284,10 +300,10 @@ function AddTriggerModal() {
               <Label>Event Type</Label>
               <select
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                value={eventType} onChange={e => setEventType(e.target.value)}
+                value={eventType} onChange={e => { setEventType(e.target.value); setRewardName(""); }}
               >
                 {EVENT_TYPES.map(t => (
-                  <option key={t} value={t}>{t.replace("_", " ")}</option>
+                  <option key={t.value} value={t.value}>{t.label}</option>
                 ))}
               </select>
             </div>
@@ -303,6 +319,20 @@ function AddTriggerModal() {
               </select>
             </div>
           </div>
+
+          {eventType === "channel_point" && (
+            <div className="grid gap-2">
+              <Label>Reward Name</Label>
+              <Input
+                value={rewardName}
+                onChange={e => setRewardName(e.target.value)}
+                placeholder="e.g. WASTED  (exact reward title, case-insensitive)"
+              />
+              <p className="text-xs text-muted-foreground -mt-1">
+                Must match the reward title exactly as you named it on Kick. Leave blank to fire on <em>any</em> channel point redemption.
+              </p>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-2">

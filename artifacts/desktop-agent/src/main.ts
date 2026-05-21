@@ -7,6 +7,7 @@ if (typeof globalThis.WebSocket === "undefined") {
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell, dialog, Notification } from "electron";
 import path from "path";
 import fs from "fs";
+import { deflateSync } from "zlib";
 import { agent, type AgentStatus } from "./agent/index";
 
 // ─── Hardcoded Supabase connection ─────────────────────────────────────────────
@@ -35,14 +36,85 @@ function saveConfig(config: Config): void {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
 }
 
-function makeIcon(color: "green" | "yellow" | "red" | "gray"): Electron.NativeImage {
-  const colors = { green: "#22c55e", yellow: "#eab308", red: "#ef4444", gray: "#64748b" };
-  const fill = colors[color];
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16">
-    <circle cx="8" cy="8" r="7" fill="${fill}"/>
-    <text x="8" y="12" text-anchor="middle" font-size="9" fill="white" font-family="Arial">⚡</text>
-  </svg>`;
-  return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`);
+// ─── PNG icon generator (no external deps, works on Windows) ─────────────────
+function buildPNG(size: number, r: number, g: number, b: number): Buffer {
+  function crc32(buf: Buffer): number {
+    const t = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let j = 0; j < 8; j++) c = (c & 1) ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      t[i] = c;
+    }
+    let crc = 0xffffffff;
+    for (const byte of buf) crc = t[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+    return (~crc) >>> 0;
+  }
+  function chunk(type: string, data: Buffer): Buffer {
+    const tb = Buffer.from(type);
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+    const crcBuf = Buffer.alloc(4); crcBuf.writeUInt32BE(crc32(Buffer.concat([tb, data])));
+    return Buffer.concat([len, tb, data, crcBuf]);
+  }
+
+  const pixels = Buffer.alloc(size * size * 4);
+  const cx = size / 2, cy = size / 2, radius = size / 2 - 0.5;
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = x - cx + 0.5, dy = y - cy + 0.5;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const alpha = Math.max(0, Math.min(1, radius - dist + 1));
+
+      // Lightning bolt shape (normalised 0-1 coords within circle)
+      const nx = (x / size - 0.5) * 2.4;  // -1.2 to 1.2
+      const ny = (y / size - 0.5) * 2.4;
+      const bolt =
+        (ny < 0.1  && nx >= -0.55 && nx <= 0.1  && ny >= -1.1) ||
+        (ny >= 0.1 && nx >= -0.1  && nx <= 0.55 && ny <= 1.1);
+
+      const idx = (y * size + x) * 4;
+      pixels[idx]     = bolt ? 255 : r;
+      pixels[idx + 1] = bolt ? 255 : g;
+      pixels[idx + 2] = bolt ? 255 : b;
+      pixels[idx + 3] = Math.round(alpha * 255);
+    }
+  }
+
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(size, 0);
+  ihdr.writeUInt32BE(size, 4);
+  ihdr[8] = 8; ihdr[9] = 6; // 8-bit RGBA
+
+  const raw: number[] = [];
+  for (let y = 0; y < size; y++) {
+    raw.push(0);
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4;
+      raw.push(pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]);
+    }
+  }
+
+  const sig = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  return Buffer.concat([sig, chunk("IHDR", ihdr), chunk("IDAT", deflateSync(Buffer.from(raw))), chunk("IEND", Buffer.alloc(0))]);
+}
+
+const ICON_COLORS: Record<string, [number, number, number]> = {
+  green:  [34,  197, 94],
+  yellow: [234, 179, 8],
+  red:    [239, 68,  68],
+  gray:   [100, 116, 139],
+  purple: [139, 92,  246],
+};
+
+function makeIcon(color: keyof typeof ICON_COLORS = "gray"): Electron.NativeImage {
+  const [r, g, b] = ICON_COLORS[color] ?? ICON_COLORS.gray;
+  return nativeImage.createFromBuffer(buildPNG(32, r, g, b));
+}
+
+// App icon for windows (larger, purple)
+function makeAppIcon(): Electron.NativeImage {
+  const [r, g, b] = ICON_COLORS.purple;
+  return nativeImage.createFromBuffer(buildPNG(256, r, g, b));
 }
 
 let tray: Tray | null = null;
@@ -50,13 +122,13 @@ let setupWindow: BrowserWindow | null = null;
 let dashboardWindow: BrowserWindow | null = null;
 let currentStatus: AgentStatus | null = null;
 let config: Config | null = null;
+const appIcon = (() => { try { return makeAppIcon(); } catch { return undefined; } })();
 
 // ─── Dashboard window ─────────────────────────────────────────────────────────
 function openDashboardWindow(urlOverride?: string): void {
   const url = urlOverride ?? config?.dashboardUrl ?? DEFAULT_DASHBOARD_URL;
 
   if (dashboardWindow && !dashboardWindow.isDestroyed()) {
-    // If we have a new URL with tokens, navigate to it so the session is set
     if (urlOverride) dashboardWindow.loadURL(url);
     dashboardWindow.show();
     dashboardWindow.focus();
@@ -69,6 +141,7 @@ function openDashboardWindow(urlOverride?: string): void {
     minWidth: 900,
     minHeight: 600,
     title: "Stream Lights",
+    icon: appIcon,
     autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: false,
@@ -78,7 +151,6 @@ function openDashboardWindow(urlOverride?: string): void {
 
   dashboardWindow.loadURL(url);
 
-  // Open external links (docs, OAuth popups, etc.) in default browser
   dashboardWindow.webContents.setWindowOpenHandler(({ url: openUrl }) => {
     if (!openUrl.startsWith(url)) {
       shell.openExternal(openUrl);
@@ -134,7 +206,7 @@ function updateTray(status?: AgentStatus): void {
   if (status) currentStatus = status;
 
   const s = currentStatus;
-  let color: "green" | "yellow" | "red" | "gray" = "gray";
+  let color: keyof typeof ICON_COLORS = "gray";
   if (s?.running) {
     if (s.kickConnected || s.twitchConnected) color = "green";
     else if (s.errors.length > 0) color = "red";
@@ -155,11 +227,12 @@ function openSetupWindow(): void {
 
   setupWindow = new BrowserWindow({
     width: 460,
-    height: 580,
+    height: 600,
     minWidth: 400,
     minHeight: 520,
     resizable: true,
-    title: "Stream Lights — Sign In",
+    title: "Stream Lights — Settings",
+    icon: appIcon,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -179,7 +252,15 @@ function notify(title: string, body: string): void {
 
 // ─── IPC ──────────────────────────────────────────────────────────────────────
 ipcMain.on("get-config", (event) => {
-  event.returnValue = config ? { email: config.email, dashboardUrl: config.dashboardUrl } : {};
+  const s = currentStatus;
+  event.returnValue = config
+    ? {
+        email: config.email,
+        dashboardUrl: config.dashboardUrl,
+        isConnected: s?.running ?? false,
+        kickConnected: s?.kickConnected ?? false,
+      }
+    : { isConnected: false, kickConnected: false };
 });
 
 ipcMain.on("close-setup", () => {
@@ -211,8 +292,6 @@ ipcMain.handle("save-config", async (_event, newConfig: Config) => {
     updateTray();
     notify("Stream Lights", "Agent connected and running!");
 
-    // Build dashboard URL with session tokens so the web app logs in automatically
-    // (no second login needed — Supabase detects the hash params and sets the session)
     const dashBase = saved.dashboardUrl;
     const session = signInData?.session;
     const dashUrl = session
@@ -242,7 +321,6 @@ async function startWithSavedConfig(cfg: Config): Promise<string | null> {
 
     await agent.start(SUPABASE_URL, SUPABASE_KEY, (status) => updateTray(status));
 
-    // Return dashboard URL with session tokens for auto-login
     const dashBase = cfg.dashboardUrl || DEFAULT_DASHBOARD_URL;
     const session = signInData?.session;
     return session
@@ -263,7 +341,6 @@ app.whenReady().then(async () => {
   tray.setToolTip("Stream Lights — starting...");
   tray.setContextMenu(buildTrayMenu());
 
-  // Double-click tray icon → open dashboard
   tray.on("double-click", () => openDashboardWindow());
 
   config = loadConfig();
@@ -273,7 +350,6 @@ app.whenReady().then(async () => {
     if (dashUrl) {
       notify("Stream Lights", "Agent started — controlling your lights!");
       updateTray();
-      // Auto-open the dashboard, already signed in via token in URL
       openDashboardWindow(dashUrl);
     } else {
       console.error("[Main] Saved credentials rejected, opening setup.");
@@ -286,6 +362,6 @@ app.whenReady().then(async () => {
   }
 });
 
-app.on("window-all-closed", () => { /* keep running in tray even if all windows closed */ });
+app.on("window-all-closed", () => { /* keep running in tray */ });
 app.on("before-quit", () => agent.stop());
-app.on("activate", () => openDashboardWindow()); // macOS dock click
+app.on("activate", () => openDashboardWindow());

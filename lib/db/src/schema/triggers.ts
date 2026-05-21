@@ -21,6 +21,7 @@ export const triggersTable = pgTable("triggers", {
   audioStartMs: integer("audio_start_ms").default(0),
   audioEndMs: integer("audio_end_ms"),
   customSteps: text("custom_steps").default("[]"),
+  rewardName: text("reward_name"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

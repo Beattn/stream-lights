@@ -67,6 +67,19 @@ export class TwitchClient {
         this.handler({ eventType: "bits", username, message, amount: bits });
       }
       this.handler({ eventType: "chat_message", username, message });
+    } else if (parts.includes("CLEARCHAT")) {
+      // CLEARCHAT #channel :username  = ban or timeout on that user
+      const targetMatch = parts.match(/CLEARCHAT #\w+ :(\w+)/);
+      if (targetMatch) {
+        const target = tags["target-user-login"] ?? targetMatch[1] ?? "unknown";
+        const banDuration = tags["ban-duration"];
+        if (banDuration) {
+          const duration = parseInt(banDuration, 10);
+          this.handler({ eventType: "timeout", username: target, message: `Timed out ${duration}s`, amount: duration });
+        } else {
+          this.handler({ eventType: "ban", username: target, message: "Banned" });
+        }
+      }
     } else if (parts.includes("USERNOTICE")) {
       const msgId = tags["msg-id"] ?? "";
       const username = tags["display-name"] ?? tags["login"] ?? "unknown";
@@ -76,10 +89,10 @@ export class TwitchClient {
       if (msgId === "sub" || msgId === "resub") {
         this.handler({ eventType: "subscribe", username, message });
       } else if (msgId === "subgift" || msgId === "anonsubgift") {
-        this.handler({ eventType: "subscribe", username, message: `Gift sub` });
+        this.handler({ eventType: "subscribe_gift", username, message: "Gift sub", amount: 1 });
       } else if (msgId === "submysterygift") {
         const count = parseInt(tags["msg-param-mass-gift-count"] ?? "1", 10);
-        this.handler({ eventType: "subscribe", username, message: `${count} gift subs`, amount: count });
+        this.handler({ eventType: "subscribe_gift", username, message: `${count} gift subs`, amount: count });
       } else if (msgId === "raid") {
         const viewers = parseInt(tags["msg-param-viewerCount"] ?? "0", 10);
         this.handler({ eventType: "raid", username, message, amount: viewers });

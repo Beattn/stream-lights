@@ -9,21 +9,22 @@ export interface PlatformEvent {
 
 type Handler = (e: PlatformEvent) => void;
 
-async function getChannelInfo(channelName: string): Promise<{ chatroomId: number } | null> {
+async function getChannelInfo(channelName: string): Promise<{ chatroomId: number; channelId: number } | null> {
   try {
     const res = await fetch(`https://kick.com/api/v2/channels/${encodeURIComponent(channelName)}`, {
       headers: { Accept: "application/json", "User-Agent": "StreamLightsAgent/1.0" },
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) return null;
-    const data = await res.json() as { chatroom?: { id: number } };
-    return data.chatroom ? { chatroomId: data.chatroom.id } : null;
+    const data = await res.json() as { id?: number; chatroom?: { id: number } };
+    return data.chatroom ? { chatroomId: data.chatroom.id, channelId: data.id ?? data.chatroom.id } : null;
   } catch { return null; }
 }
 
 export class KickClient {
   private ws: WebSocket | null = null;
   private chatroomId: number | null = null;
+  private channelId: number | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private pingTimer: NodeJS.Timeout | null = null;
   private shouldRun = false;
@@ -35,7 +36,8 @@ export class KickClient {
     const info = await getChannelInfo(this.channelName);
     if (!info) { console.error(`[Kick] Channel not found: ${this.channelName}`); return; }
     this.chatroomId = info.chatroomId;
-    console.log(`[Kick] Connecting to ${this.channelName} (room ${this.chatroomId})`);
+    this.channelId = info.channelId;
+    console.log(`[Kick] Connecting to ${this.channelName} (room ${this.chatroomId}, channel ${this.channelId})`);
     this.connect();
   }
 
@@ -52,7 +54,12 @@ export class KickClient {
       try {
         const msg = JSON.parse(raw.toString()) as { event: string; data: string | object };
         if (msg.event === "pusher:connection_established") {
+          // Subscribe to chatroom channel (chat, subs, follows, gifts)
           this.ws!.send(JSON.stringify({ event: "pusher:subscribe", data: { auth: "", channel: `chatrooms.${this.chatroomId}.v2` } }));
+          // Subscribe to channel channel (stream live, raids, polls)
+          if (this.channelId) {
+            this.ws!.send(JSON.stringify({ event: "pusher:subscribe", data: { auth: "", channel: `channel.${this.channelId}` } }));
+          }
           return;
         }
         if (msg.event === "pusher:ping") { this.ws!.send(JSON.stringify({ event: "pusher:pong", data: {} })); return; }
@@ -62,7 +69,19 @@ export class KickClient {
         if (msg.event === "App\\Events\\ChatMessageEvent") {
           const content = (data.content as string) ?? "";
           const sender = (data.sender as Record<string, unknown>)?.username as string ?? "unknown";
-          this.handler({ eventType: "chat_message", username: sender, message: content });
+          const msgType = (data.type as string) ?? "message";
+
+          if (msgType === "channel_points_win") {
+            // Channel point redemption — extract reward name from best available field
+            const metadata = data.metadata as Record<string, unknown> | null;
+            const rewardName =
+              (metadata?.original_message as Record<string, unknown>)?.content as string ??
+              (data.reward as Record<string, unknown>)?.title as string ??
+              content;
+            this.handler({ eventType: "channel_point", username: sender, message: rewardName.trim() });
+          } else {
+            this.handler({ eventType: "chat_message", username: sender, message: content });
+          }
         } else if (msg.event === "App\\Events\\SubscriptionEvent") {
           const username = (data.username as string) ?? (data.user_username as string) ?? "unknown";
           this.handler({ eventType: "subscribe", username, message: "" });
@@ -84,7 +103,21 @@ export class KickClient {
           this.handler({ eventType: "stream_live", username: this.channelName, message: "Stream went live" });
         } else if (msg.event === "App\\Events\\RaidEvent") {
           const raider = (data.raid as Record<string, unknown>)?.host_username as string ?? "raider";
-          this.handler({ eventType: "raid", username: raider, message: "" });
+          const viewers = (data.raid as Record<string, unknown>)?.viewer_count as number ?? 0;
+          this.handler({ eventType: "raid", username: raider, message: "", amount: viewers });
+        } else if (
+          msg.event === "App\\Events\\UserBannedEvent" ||
+          msg.event === "App\\Events\\BanEvent"
+        ) {
+          const banned = (data.user as Record<string, unknown>)?.username as string
+            ?? (data.banned_username as string)
+            ?? "unknown";
+          const duration = data.duration as number | null ?? null;
+          if (duration !== null && duration > 0) {
+            this.handler({ eventType: "timeout", username: banned, message: `Timed out ${duration}s`, amount: duration });
+          } else {
+            this.handler({ eventType: "ban", username: banned, message: "Banned" });
+          }
         }
       } catch { /* ignore */ }
     });
