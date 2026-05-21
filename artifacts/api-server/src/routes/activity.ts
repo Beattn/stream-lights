@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { activityTable } from "@workspace/db";
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { eventTypeSchema } from "../lib/security";
 
@@ -14,17 +14,16 @@ router.get("/activity", async (req, res) => {
       eventType: eventTypeSchema.optional(),
     }).strict().parse(req.query);
 
+    // Filter in the DB (not in JS) so the LIMIT applies to the correct result set
     const results = await db
       .select()
       .from(activityTable)
+      .where(query.eventType ? eq(activityTable.eventType, query.eventType) : undefined)
       .orderBy(desc(activityTable.triggeredAt))
       .limit(query.limit);
 
-    const filtered = query.eventType
-      ? results.filter((a) => a.eventType === query.eventType)
-      : results;
-
-    res.json(filtered.map((a) => ({ ...a, triggeredAt: a.triggeredAt.toISOString() })));
+    res.set("Cache-Control", "no-store");
+    res.json(results.map((a) => ({ ...a, triggeredAt: a.triggeredAt.toISOString() })));
   } catch (err) {
     req.log.error({ err }, "Failed to list activity");
     res.status(500).json({ error: "Failed to list activity" });

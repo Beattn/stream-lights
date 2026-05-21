@@ -10,7 +10,7 @@ import { writeLimiter } from "../middlewares/rate-limit";
 const router = Router();
 
 const VALID_DEVICE_TYPES = [
-  "philips_hue", "lifx", "govee", "nanoleaf", "wiz", "kasa", "generic_http",
+  "philips_hue", "lifx", "govee", "nanoleaf", "generic_http",
 ] as const;
 
 const ipSchema = z

@@ -265,7 +265,6 @@ class StreamLightsAgent {
     }
 
     this.emitStatus();
-    await this.logActivity(event.eventType, platform, event.username, event.message);
   }
 
   private async matchTriggers(eventType: string, platform: string, username: string, message: string, amount?: number): Promise<void> {
@@ -277,6 +276,10 @@ class StreamLightsAgent {
       if (t.minAmount && amount !== undefined && amount < t.minAmount) return false;
       return true;
     });
+
+    if (matching.length > 0) {
+      await this.logActivity(eventType, platform, username, message);
+    }
 
     for (const trigger of matching) {
       let triggerSteps: Array<{ color: string; durationMs: number; brightness?: number }> = [];
@@ -325,6 +328,7 @@ class StreamLightsAgent {
     );
 
     void this.supabase?.from("commands").update({ usage_count: command.id + 1 }).eq("id", command.id);
+    void this.logActivity("chat_command", platform, username, message);
     return true;
   }
 

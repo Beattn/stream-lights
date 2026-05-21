@@ -63,6 +63,24 @@ const GOVEE_TIMEOUT_MS = 5000;
 const HUE_TIMEOUT_MS = 5000;
 const LIFX_TIMEOUT_MS = 5000;
 
+// Govee HTTP API allows ~10 requests per device per minute.
+// We throttle at the alert level (not per-command) so effects like strobe
+// can still fire multiple rapid calls within one alert, while preventing
+// separate alerts from hammering the API. 6s = 10 alerts/min max.
+const GOVEE_ALERT_INTERVAL_MS = 6000;
+const goveeLastAlert = new Map<string, number>();
+
+async function goveeSet(key: string, device: string, model: string, cmd: object) {
+  const res = await fetch("https://developer-api.govee.com/v1/devices/control", {
+    method: "PUT", headers: { "Govee-API-Key": key, "Content-Type": "application/json" },
+    body: JSON.stringify({ device, model, cmd }), signal: AbortSignal.timeout(GOVEE_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`Govee API error ${res.status}: ${text}`);
+  }
+}
+
 async function hueSet(ip: string, key: string, lightId: string, body: object) {
   await fetch(`http://${ip}/api/${key}/lights/${lightId}/state`, {
     method: "PUT", headers: { "Content-Type": "application/json" },
@@ -81,13 +99,6 @@ async function lifxSet(key: string, selector: string, body: object) {
   await fetch(`https://api.lifx.com/v1/lights/${selector}/state`, {
     method: "PUT", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify(body), signal: AbortSignal.timeout(LIFX_TIMEOUT_MS),
-  });
-}
-
-async function goveeSet(key: string, device: string, model: string, cmd: object) {
-  await fetch("https://developer-api.govee.com/v1/devices/control", {
-    method: "PUT", headers: { "Govee-API-Key": key, "Content-Type": "application/json" },
-    body: JSON.stringify({ device, model, cmd }), signal: AbortSignal.timeout(GOVEE_TIMEOUT_MS),
   });
 }
 
@@ -185,6 +196,19 @@ export async function applyLight(device: Device, params: LightParams): Promise<v
     if (idx !== -1) {
       const model = device.deviceId.slice(0, idx);
       const mac = device.deviceId.slice(idx + 1);
+
+      // Alert-level rate limit: skip if too soon since last alert for this device.
+      // This lets effects (strobe, police) fire many calls within one alert freely,
+      // while preventing separate back-to-back alerts from exceeding Govee's API limit.
+      const alertKey = `${device.apiKey}:${mac}`;
+      const now = Date.now();
+      const lastAlert = goveeLastAlert.get(alertKey) ?? 0;
+      if (now - lastAlert < GOVEE_ALERT_INTERVAL_MS) {
+        console.warn(`[Govee] Rate limited — skipping alert for device ${mac}`);
+        return;
+      }
+      goveeLastAlert.set(alertKey, now);
+
       const { r, g, b } = hexToRgb(params.color);
 
       if (params.effect === "strobe") {

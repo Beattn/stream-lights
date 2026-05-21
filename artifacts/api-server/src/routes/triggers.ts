@@ -27,8 +27,7 @@ router.get("/triggers", async (req, res) => {
   try {
     const triggers = await db.select().from(triggersTable).orderBy(triggersTable.createdAt);
     
-    // Cache GET requests for 30 seconds to reduce database load
-    res.set("Cache-Control", "public, max-age=30, s-maxage=30");
+    res.set("Cache-Control", "no-store");
     res.json(triggers.map(parseTrigger));
   } catch (err) {
     req.log.error({ err }, "Failed to list triggers");
@@ -50,6 +49,7 @@ router.post("/triggers", writeLimiter, async (req, res) => {
       returnToIdle: z.boolean().optional(),
       minAmount: z.number().int().min(0).max(1_000_000).optional(),
       deviceIds: z.array(z.number().int().min(1).max(2_147_483_647)).max(50).optional(),
+      customSteps: z.string().max(50_000).optional(),
       audioUrl: z.string().url().optional(),
       audioFile: z.string().optional(),
       audioVolume: z.number().int().min(0).max(100).optional(),
@@ -69,6 +69,7 @@ router.post("/triggers", writeLimiter, async (req, res) => {
       returnToIdle: body.returnToIdle ?? true,
       minAmount: body.minAmount ?? null,
       deviceIds: JSON.stringify(body.deviceIds ?? []),
+      customSteps: body.customSteps ?? "[]",
       audioUrl: body.audioUrl ?? null,
       audioFile: body.audioFile ?? null,
       audioVolume: body.audioVolume ?? 100,
@@ -89,8 +90,7 @@ router.get("/triggers/:id", async (req, res) => {
     const [trigger] = await db.select().from(triggersTable).where(eq(triggersTable.id, id));
     if (!trigger) return res.status(404).json({ error: "Trigger not found" });
     
-    // Cache individual trigger data for 1 minute
-    res.set("Cache-Control", "public, max-age=60, s-maxage=60");
+    res.set("Cache-Control", "no-store");
     res.json(parseTrigger(trigger));
   } catch (err) {
     const status = (err as { statusCode?: number }).statusCode ?? 500;
@@ -112,6 +112,7 @@ router.patch("/triggers/:id", writeLimiter, async (req, res) => {
       returnToIdle: z.boolean().optional(),
       minAmount: z.number().int().min(0).max(1_000_000).optional(),
       deviceIds: z.array(z.number().int().min(1).max(2_147_483_647)).max(50).optional(),
+      customSteps: z.string().max(50_000).optional(),
       audioUrl: z.string().url().optional(),
       audioFile: z.string().optional(),
       audioVolume: z.number().int().min(0).max(100).optional(),

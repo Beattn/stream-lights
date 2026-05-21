@@ -159,16 +159,12 @@ function openSetupWindow(): void {
     minWidth: 400,
     minHeight: 520,
     resizable: true,
-    frame: false,
-    transparent: true,
     title: "Stream Lights — Sign In",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
     },
-    titleBarStyle: "hidden",
-    backgroundMaterial: "acrylic",
   });
 
   setupWindow.loadFile(path.join(__dirname, "..", "setup.html"));

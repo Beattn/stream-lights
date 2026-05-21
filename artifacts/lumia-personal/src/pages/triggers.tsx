@@ -202,8 +202,8 @@ function AddTriggerModal() {
 
   const [name, setName] = useState("");
   const [eventType, setEventType] = useState("follow");
-  const [platform, setPlatform] = useState("twitch");
-  const [color, setColor] = useState("#9146FF");
+  const [platform, setPlatform] = useState("kick");
+  const [color, setColor] = useState("#53FC18");
   const [brightness, setBrightness] = useState(100);
   const [durationMs, setDurationMs] = useState(3000);
   const [effect, setEffect] = useState("pulse");
@@ -215,8 +215,8 @@ function AddTriggerModal() {
   const [testing, setTesting] = useState(false);
 
   const reset = () => {
-    setName(""); setEventType("follow"); setPlatform("twitch");
-    setColor("#9146FF"); setBrightness(100); setDurationMs(3000);
+    setName(""); setEventType("follow"); setPlatform("kick");
+    setColor("#53FC18"); setBrightness(100); setDurationMs(3000);
     setEffect("pulse"); setCustomSteps(DEFAULT_STEPS);
     setAudioUrl(""); setAudioVolume(80);
     setAudioStartMs(0); setAudioEndMs(null);

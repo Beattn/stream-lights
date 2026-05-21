@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { hexColorSchema } from "../lib/security";
 import { writeLimiter } from "../middlewares/rate-limit";
+import { invalidateSettingsCache } from "../lib/drivers/light-engine";
 
 const router = Router();
 
@@ -42,6 +43,7 @@ router.patch("/settings", writeLimiter, async (req, res) => {
     }).strict().parse(req.body);
 
     const [updated] = await db.update(settingsTable).set(body).where(eq(settingsTable.id, settings.id)).returning();
+    invalidateSettingsCache();
     res.json(updated);
   } catch (err) {
     req.log.error({ err }, "Failed to update settings");

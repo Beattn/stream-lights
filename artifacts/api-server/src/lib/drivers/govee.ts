@@ -5,12 +5,16 @@ const BASE = "https://developer-api.govee.com/v1";
 const TIMEOUT_MS = 5000;
 
 async function goveeRequest(apiKey: string, body: object): Promise<void> {
-  await fetch(`${BASE}/devices/control`, {
+  const res = await fetch(`${BASE}/devices/control`, {
     method: "PUT",
     headers: { "Govee-API-Key": apiKey, "Content-Type": "application/json" },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`Govee API error ${res.status}: ${text}`);
+  }
 }
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {

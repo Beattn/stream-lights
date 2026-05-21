@@ -1,13 +1,12 @@
-import { useListDevices, useToggleDevice, useTestDevice, useDeleteDevice, useCreateDevice, useUpdateDevice } from "@workspace/api-client-react";
-import { Lightbulb, Plus, Power, Radio, Trash2, Edit, Save, X, RefreshCw } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useListDevices, useToggleDevice, useTestDevice, useDeleteDevice, useCreateDevice } from "@workspace/api-client-react";
+import { Lightbulb, Plus, Power, Trash2, RefreshCw } from "lucide-react";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 
 export default function Devices() {
   const { data: devices, isLoading } = useListDevices();
@@ -53,16 +52,16 @@ function DeviceCard({ device }: { device: any }) {
   };
 
   const handleTest = () => {
-    test.mutate({ 
-      id: device.id, 
-      data: { color: "#ffffff", effect: "pulse", brightness: 100, durationMs: 1000 } 
+    test.mutate({
+      id: device.id,
+      data: { color: "#ffffff", effect: "pulse", brightness: 100, durationMs: 1000 }
     }, {
       onSuccess: () => toast({ title: `Test signal sent to ${device.name}.` })
     });
   };
 
   const handleDelete = () => {
-    if(confirm(`Are you sure you want to delete ${device.name}?`)) {
+    if (confirm(`Are you sure you want to delete ${device.name}?`)) {
       deleteDev.mutate({ id: device.id }, {
         onSuccess: () => toast({ title: `${device.name} deleted.` })
       });
@@ -79,12 +78,10 @@ function DeviceCard({ device }: { device: any }) {
             </div>
             <div>
               <h3 className="font-semibold text-lg">{device.name}</h3>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider font-mono">{device.type.replace('_', ' ')}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider font-mono">{device.type.replace(/_/g, ' ')}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className={`flex h-2.5 w-2.5 rounded-full ${device.isOnline ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-red-500'}`} />
-          </div>
+          <span className={`flex h-2.5 w-2.5 rounded-full mt-1 ${device.isOnline ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-red-500'}`} />
         </div>
 
         <div className="space-y-3 mb-6 text-sm text-muted-foreground">
@@ -97,7 +94,7 @@ function DeviceCard({ device }: { device: any }) {
           {device.deviceId && (
             <div className="flex justify-between border-b border-border/50 pb-2">
               <span>Device ID</span>
-              <span className="font-mono text-foreground">{device.deviceId}</span>
+              <span className="font-mono text-foreground text-xs">{device.deviceId}</span>
             </div>
           )}
         </div>
@@ -106,7 +103,7 @@ function DeviceCard({ device }: { device: any }) {
           <Button variant="outline" size="icon" onClick={handleToggle} disabled={toggle.isPending} title="Toggle Power">
             <Power className="w-4 h-4" />
           </Button>
-          <Button variant="outline" size="icon" onClick={handleTest} disabled={test.isPending} title="Identify / Test">
+          <Button variant="outline" size="icon" onClick={handleTest} disabled={test.isPending} title="Test Light">
             <RefreshCw className="w-4 h-4" />
           </Button>
           <div className="ml-auto">
@@ -120,6 +117,70 @@ function DeviceCard({ device }: { device: any }) {
   );
 }
 
+const DEVICE_TYPES = [
+  { value: "philips_hue", label: "Philips Hue" },
+  { value: "lifx", label: "LIFX" },
+  { value: "govee", label: "Govee" },
+  { value: "nanoleaf", label: "Nanoleaf" },
+  { value: "generic_http", label: "Generic HTTP Webhook" },
+];
+
+interface FieldConfig {
+  showBridgeIp: boolean;
+  bridgeIpLabel: string;
+  bridgeIpPlaceholder: string;
+  showApiKey: boolean;
+  apiKeyLabel: string;
+  showDeviceId: boolean;
+  deviceIdLabel: string;
+  deviceIdPlaceholder: string;
+  deviceIdHint: string;
+}
+
+function getFieldConfig(type: string): FieldConfig {
+  switch (type) {
+    case "philips_hue":
+      return {
+        showBridgeIp: true, bridgeIpLabel: "Bridge IP Address", bridgeIpPlaceholder: "192.168.1.x",
+        showApiKey: true, apiKeyLabel: "Hue API Key / Username",
+        showDeviceId: true, deviceIdLabel: "Light ID", deviceIdPlaceholder: "1",
+        deviceIdHint: "The numeric light ID from your Hue bridge (usually 1, 2, 3…).",
+      };
+    case "govee":
+      return {
+        showBridgeIp: false, bridgeIpLabel: "", bridgeIpPlaceholder: "",
+        showApiKey: true, apiKeyLabel: "Govee API Key",
+        showDeviceId: true, deviceIdLabel: "Device ID (MODEL:MAC)", deviceIdPlaceholder: "H6159:AA:BB:CC:DD:EE:FF",
+        deviceIdHint: "Open the Govee app → tap your device → ⚙ Settings → Device Info. Format: MODEL:MAC (e.g. H6159:AA:BB:CC:DD:EE:FF).",
+      };
+    case "lifx":
+      return {
+        showBridgeIp: false, bridgeIpLabel: "", bridgeIpPlaceholder: "",
+        showApiKey: true, apiKeyLabel: "LIFX API Token",
+        showDeviceId: true, deviceIdLabel: "Device Serial (optional)", deviceIdPlaceholder: "Leave blank to target all bulbs",
+        deviceIdHint: "Leave blank to control all LIFX bulbs on the account.",
+      };
+    case "nanoleaf":
+      return {
+        showBridgeIp: true, bridgeIpLabel: "Nanoleaf IP Address", bridgeIpPlaceholder: "192.168.1.x",
+        showApiKey: true, apiKeyLabel: "Auth Token",
+        showDeviceId: false, deviceIdLabel: "", deviceIdPlaceholder: "", deviceIdHint: "",
+      };
+    case "generic_http":
+      return {
+        showBridgeIp: true, bridgeIpLabel: "Webhook URL", bridgeIpPlaceholder: "https://...",
+        showApiKey: true, apiKeyLabel: "Bearer Token (optional)",
+        showDeviceId: false, deviceIdLabel: "", deviceIdPlaceholder: "", deviceIdHint: "",
+      };
+    default:
+      return {
+        showBridgeIp: true, bridgeIpLabel: "IP Address", bridgeIpPlaceholder: "192.168.1.x",
+        showApiKey: true, apiKeyLabel: "API Key / Token",
+        showDeviceId: false, deviceIdLabel: "", deviceIdPlaceholder: "", deviceIdHint: "",
+      };
+  }
+}
+
 function AddDeviceModal() {
   const [open, setOpen] = useState(false);
   const create = useCreateDevice();
@@ -129,14 +190,43 @@ function AddDeviceModal() {
   const [type, setType] = useState("philips_hue");
   const [bridgeIp, setBridgeIp] = useState("");
   const [apiKey, setApiKey] = useState("");
-  
+  const [deviceId, setDeviceId] = useState("");
+
+  const fields = getFieldConfig(type);
+
+  const handleTypeChange = (newType: string) => {
+    setType(newType);
+    setBridgeIp("");
+    setApiKey("");
+    setDeviceId("");
+  };
+
   const handleSave = () => {
+    if (type === "govee" && !deviceId.trim()) {
+      toast({ title: "Device ID required", description: "Govee lights need a Device ID in MODEL:MAC format to receive commands.", variant: "destructive" });
+      return;
+    }
+    if (type === "govee" && !deviceId.includes(":")) {
+      toast({ title: "Invalid Device ID", description: "Govee Device ID must be in MODEL:MAC format (e.g. H6159:AA:BB:CC:DD:EE:FF).", variant: "destructive" });
+      return;
+    }
     create.mutate({
-      data: { name, type, bridgeIp, apiKey, enabled: true }
+      data: {
+        name,
+        type,
+        bridgeIp: fields.showBridgeIp ? bridgeIp || undefined : undefined,
+        apiKey: apiKey || undefined,
+        deviceId: deviceId.trim() || undefined,
+        enabled: true,
+      }
     }, {
       onSuccess: () => {
         toast({ title: "Device added successfully" });
         setOpen(false);
+        setName(""); setType("philips_hue"); setBridgeIp(""); setApiKey(""); setDeviceId("");
+      },
+      onError: (err: any) => {
+        toast({ title: "Failed to add device", description: err?.message ?? "Unknown error", variant: "destructive" });
       }
     });
   };
@@ -156,31 +246,46 @@ function AddDeviceModal() {
         <div className="grid gap-4 py-4">
           <div className="grid gap-2">
             <Label>Name</Label>
-            <Input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Desk Lamp" />
+            <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Neon Rope Light" />
           </div>
           <div className="grid gap-2">
             <Label>Device Type</Label>
-            <select 
+            <select
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-              value={type} onChange={e=>setType(e.target.value)}
+              value={type} onChange={e => handleTypeChange(e.target.value)}
             >
-              <option value="philips_hue">Philips Hue Bridge</option>
-              <option value="lifx">LIFX</option>
-              <option value="govee">Govee</option>
-              <option value="nanoleaf">Nanoleaf</option>
-              <option value="wiz">WiZ</option>
-              <option value="kasa">Kasa Smart</option>
-              <option value="generic_http">Generic HTTP</option>
+              {DEVICE_TYPES.map(dt => (
+                <option key={dt.value} value={dt.value}>{dt.label}</option>
+              ))}
             </select>
           </div>
-          <div className="grid gap-2">
-            <Label>Bridge/Device IP Address (Optional)</Label>
-            <Input value={bridgeIp} onChange={e=>setBridgeIp(e.target.value)} placeholder="192.168.1.x" />
-          </div>
-          <div className="grid gap-2">
-            <Label>API Key / Token (Optional)</Label>
-            <Input value={apiKey} onChange={e=>setApiKey(e.target.value)} type="password" />
-          </div>
+
+          {fields.showBridgeIp && (
+            <div className="grid gap-2">
+              <Label>{fields.bridgeIpLabel}</Label>
+              <Input value={bridgeIp} onChange={e => setBridgeIp(e.target.value)} placeholder={fields.bridgeIpPlaceholder} />
+            </div>
+          )}
+
+          {fields.showApiKey && (
+            <div className="grid gap-2">
+              <Label>{fields.apiKeyLabel}</Label>
+              <Input value={apiKey} onChange={e => setApiKey(e.target.value)} type="password" placeholder="Paste your key here" />
+            </div>
+          )}
+
+          {fields.showDeviceId && (
+            <div className="grid gap-2">
+              <Label>
+                {fields.deviceIdLabel}
+                {type === "govee" && <span className="text-destructive ml-1">*</span>}
+              </Label>
+              <Input value={deviceId} onChange={e => setDeviceId(e.target.value)} placeholder={fields.deviceIdPlaceholder} />
+              {fields.deviceIdHint && (
+                <p className="text-xs text-muted-foreground leading-relaxed">{fields.deviceIdHint}</p>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>

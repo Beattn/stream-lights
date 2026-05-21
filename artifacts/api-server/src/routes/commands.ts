@@ -21,9 +21,7 @@ function serializeCommand(c: typeof commandsTable.$inferSelect) {
 router.get("/commands", async (req, res) => {
   try {
     const commands = await db.select().from(commandsTable).orderBy(commandsTable.createdAt);
-    
-    // Cache GET requests for 30 seconds
-    res.set("Cache-Control", "public, max-age=30, s-maxage=30");
+    res.set("Cache-Control", "no-store");
     res.json(commands.map(serializeCommand));
   } catch (err) {
     req.log.error({ err }, "Failed to list commands");

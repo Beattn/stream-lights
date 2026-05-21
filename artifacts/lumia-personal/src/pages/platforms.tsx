@@ -140,22 +140,39 @@ function PlatformCard({ def, connection }: { def: typeof PLATFORM_DEFS[0], conne
   );
 }
 
+const PLATFORM_NOTES: Record<string, string> = {
+  kick: "Kick only needs your channel name — no API key or token required. The app connects via Kick's public event system automatically.",
+  twitch: "Enter your channel name and optionally an OAuth access token to receive subscriber and bits events.",
+  youtube: "Enter your channel name and a YouTube Data API key to receive live events.",
+  streamlabs: "Enter your channel name and your Streamlabs access token.",
+  streamelements: "Enter your channel name and your StreamElements JWT token.",
+};
+
+const PLATFORM_NEEDS_TOKEN: Record<string, boolean> = {
+  kick: false,
+  twitch: true,
+  youtube: true,
+  streamlabs: true,
+  streamelements: true,
+};
+
 function ConnectModal({ def }: { def: typeof PLATFORM_DEFS[0] }) {
   const [open, setOpen] = useState(false);
   const connect = useConnectPlatform();
   const { toast } = useToast();
 
   const [channelName, setChannelName] = useState("");
-  const [clientId, setClientId] = useState("");
-  const [clientSecret, setClientSecret] = useState("");
   const [accessToken, setAccessToken] = useState("");
 
+  const needsToken = PLATFORM_NEEDS_TOKEN[def.id] ?? true;
+
   const handleConnect = () => {
-    connect.mutate({ platform: def.id, data: { channelName, clientId, clientSecret, accessToken } }, {
+    connect.mutate({ platform: def.id, data: { channelName, accessToken: accessToken || undefined } }, {
       onSuccess: () => {
         toast({ title: `Connected to ${def.name}!` });
         setOpen(false);
-        setChannelName(""); setClientId(""); setClientSecret(""); setAccessToken("");
+        setChannelName("");
+        setAccessToken("");
       },
       onError: () => toast({ title: `Failed to connect to ${def.name}`, variant: "destructive" }),
     });
@@ -174,25 +191,31 @@ function ConnectModal({ def }: { def: typeof PLATFORM_DEFS[0] }) {
           <DialogTitle>Connect {def.name}</DialogTitle>
         </DialogHeader>
         <div className="grid gap-4 py-4">
+          {PLATFORM_NOTES[def.id] && (
+            <p className="text-sm text-muted-foreground bg-muted/40 rounded-lg px-3 py-2 border border-border/50">
+              {PLATFORM_NOTES[def.id]}
+            </p>
+          )}
           <div className="grid gap-2">
-            <Label>Channel / Username</Label>
-            <Input value={channelName} onChange={e => setChannelName(e.target.value)} placeholder={`Your ${def.name} channel name`} />
+            <Label>Channel Name</Label>
+            <Input
+              value={channelName}
+              onChange={e => setChannelName(e.target.value)}
+              placeholder={`Your ${def.name} channel name`}
+              autoComplete="off"
+            />
           </div>
-          <div className="grid gap-2">
-            <Label>Client ID (optional)</Label>
-            <Input value={clientId} onChange={e => setClientId(e.target.value)} placeholder="App Client ID" />
-          </div>
-          <div className="grid gap-2">
-            <Label>Client Secret (optional)</Label>
-            <Input value={clientSecret} onChange={e => setClientSecret(e.target.value)} type="password" placeholder="App Client Secret" />
-          </div>
-          <div className="grid gap-2">
-            <Label>Access Token (optional)</Label>
-            <Input value={accessToken} onChange={e => setAccessToken(e.target.value)} type="password" placeholder="OAuth Access Token" />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            You can connect with just your channel name to set up the platform. Add API credentials when you're ready to receive live events.
-          </p>
+          {needsToken && (
+            <div className="grid gap-2">
+              <Label>Access Token <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Input
+                value={accessToken}
+                onChange={e => setAccessToken(e.target.value)}
+                type="password"
+                placeholder="OAuth / API token"
+              />
+            </div>
+          )}
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>

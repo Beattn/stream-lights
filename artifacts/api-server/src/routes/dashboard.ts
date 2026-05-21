@@ -1,43 +1,64 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { devicesTable, platformsTable, triggersTable, commandsTable, activityTable } from "@workspace/db";
-import { eq, gte, sql } from "drizzle-orm";
+import { eq, gte, sql, count } from "drizzle-orm";
 
 const router = Router();
 
 router.get("/dashboard/stats", async (req, res) => {
   try {
-    const [devices, platforms, triggers, commands] = await Promise.all([
-      db.select().from(devicesTable),
-      db.select().from(platformsTable),
-      db.select().from(triggersTable),
-      db.select().from(commandsTable),
-    ]);
-
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const todayActivity = await db.select().from(activityTable).where(gte(activityTable.triggeredAt, today));
-
-    const eventTypeCounts: Record<string, number> = {};
-    for (const entry of todayActivity) {
-      eventTypeCounts[entry.eventType] = (eventTypeCounts[entry.eventType] ?? 0) + 1;
-    }
-
-    const topEventTypes = Object.entries(eventTypeCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([eventType, count]) => ({ eventType, count }));
-
-    res.json({
-      totalDevices: devices.length,
-      onlineDevices: devices.filter(d => d.isOnline || d.enabled).length,
-      activePlatforms: platforms.filter(p => p.connected).length,
-      totalTriggers: triggers.length,
-      activeTriggers: triggers.filter(t => t.enabled).length,
-      totalCommands: commands.length,
-      eventsToday: todayActivity.length,
+    // Run all DB queries in parallel using COUNT aggregates — never pull full rows into memory
+    const [
+      deviceCounts,
+      platformCounts,
+      triggerCounts,
+      commandCounts,
+      eventsCount,
       topEventTypes,
+    ] = await Promise.all([
+      db.select({
+        total: count(),
+        online: sql<number>`count(*) filter (where ${devicesTable.enabled} = true or ${devicesTable.isOnline} = true)`,
+      }).from(devicesTable),
+
+      db.select({
+        active: sql<number>`count(*) filter (where ${platformsTable.connected} = true)`,
+      }).from(platformsTable),
+
+      db.select({
+        total: count(),
+        active: sql<number>`count(*) filter (where ${triggersTable.enabled} = true)`,
+      }).from(triggersTable),
+
+      db.select({ total: count() }).from(commandsTable),
+
+      db.select({ total: count() }).from(activityTable)
+        .where(gte(activityTable.triggeredAt, today)),
+
+      db.select({
+        eventType: activityTable.eventType,
+        cnt: count(),
+      })
+        .from(activityTable)
+        .where(gte(activityTable.triggeredAt, today))
+        .groupBy(activityTable.eventType)
+        .orderBy(sql`count(*) desc`)
+        .limit(5),
+    ]);
+
+    res.set("Cache-Control", "no-store");
+    res.json({
+      totalDevices: Number(deviceCounts[0]?.total ?? 0),
+      onlineDevices: Number(deviceCounts[0]?.online ?? 0),
+      activePlatforms: Number(platformCounts[0]?.active ?? 0),
+      totalTriggers: Number(triggerCounts[0]?.total ?? 0),
+      activeTriggers: Number(triggerCounts[0]?.active ?? 0),
+      totalCommands: Number(commandCounts[0]?.total ?? 0),
+      eventsToday: Number(eventsCount[0]?.total ?? 0),
+      topEventTypes: topEventTypes.map((r) => ({ eventType: r.eventType, count: Number(r.cnt) })),
     });
   } catch (err) {
     req.log.error({ err }, "Failed to get dashboard stats");

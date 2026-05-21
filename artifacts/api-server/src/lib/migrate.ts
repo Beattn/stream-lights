@@ -1,6 +1,6 @@
 import { pool } from "@workspace/db";
 
-const TABLES = ["devices", "platforms", "triggers", "commands", "activity", "settings", "audio_jobs"] as const;
+const TABLES = ["devices", "platforms", "triggers", "commands", "activity", "settings", "audio_jobs", "scenes"] as const;
 
 export async function runMigrations(): Promise<void> {
   const client = await pool.connect();
@@ -27,6 +27,18 @@ export async function runMigrations(): Promise<void> {
         result_url  text,
         title       text,
         error       text,
+        created_at  timestamptz NOT NULL DEFAULT now()
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS scenes (
+        id          serial PRIMARY KEY,
+        name        text NOT NULL,
+        color       text NOT NULL DEFAULT '#FF0000',
+        brightness  integer NOT NULL DEFAULT 100,
+        effect      text NOT NULL DEFAULT 'solid',
+        device_ids  text NOT NULL DEFAULT '[]',
         created_at  timestamptz NOT NULL DEFAULT now()
       );
     `);

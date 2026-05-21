@@ -71,8 +71,17 @@ export class KickClient {
           const count = (data.gifted_quantity as number) ?? 1;
           this.handler({ eventType: "subscribe_gift", username: gifter, message: `Gifted ${count} subs`, amount: count });
         } else if (msg.event === "App\\Events\\FollowersUpdated") {
-          const username = (data.username as string) ?? "follower";
+          const username =
+            (data.followed_by as string) ??
+            (data.username as string) ??
+            (data.user as Record<string, unknown>)?.username as string ??
+            "follower";
           this.handler({ eventType: "follow", username, message: "" });
+        } else if (msg.event === "App\\Events\\LuckyUsersWhoGotGiftSubscriptionsEvent") {
+          const gifter = (data.gifted_username as string) ?? (data.gifter_username as string) ?? "unknown";
+          this.handler({ eventType: "subscribe_gift", username: gifter, message: "Gifted subs", amount: 1 });
+        } else if (msg.event === "App\\Events\\StreamerIsLive") {
+          this.handler({ eventType: "stream_live", username: this.channelName, message: "Stream went live" });
         } else if (msg.event === "App\\Events\\RaidEvent") {
           const raider = (data.raid as Record<string, unknown>)?.host_username as string ?? "raider";
           this.handler({ eventType: "raid", username: raider, message: "" });

@@ -43,7 +43,15 @@ async function getEnabledDevices(deviceIds?: number[]) {
   return devices.filter((d) => d.enabled);
 }
 
-async function getSettings() {
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+// Cache settings in memory so every fireLights call doesn't hit the DB.
+// Settings rarely change — 30s TTL is plenty fresh.
+let cachedSettings: Awaited<ReturnType<typeof fetchSettings>> | null = null;
+let settingsCachedAt = 0;
+const SETTINGS_TTL_MS = 30_000;
+
+async function fetchSettings() {
   const [settings] = await db.select().from(settingsTable).limit(1);
   return settings ?? {
     globalEnabled: true,
@@ -54,7 +62,19 @@ async function getSettings() {
   };
 }
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+async function getSettings() {
+  const now = Date.now();
+  if (!cachedSettings || now - settingsCachedAt > SETTINGS_TTL_MS) {
+    cachedSettings = await fetchSettings();
+    settingsCachedAt = now;
+  }
+  return cachedSettings;
+}
+
+/** Call after saving new settings so the next fireLights picks them up immediately. */
+export function invalidateSettingsCache() {
+  cachedSettings = null;
+}
 
 async function applyRaw(device: typeof devicesTable.$inferSelect, params: LightParams): Promise<void> {
   switch (device.type) {
@@ -86,7 +106,8 @@ async function applyToDevice(
     } else {
       await applyRaw(device, params);
     }
-    await db.update(devicesTable).set({ currentColor: params.color, brightness: params.brightness }).where(eq(devicesTable.id, device.id));
+    // Fire-and-forget: don't block the alert pipeline waiting for a bookkeeping DB write
+    void db.update(devicesTable).set({ currentColor: params.color, brightness: params.brightness }).where(eq(devicesTable.id, device.id));
   } catch (err) {
     logger.error({ err, deviceId: device.id, deviceType: device.type }, "Failed to apply light to device");
   }
@@ -138,10 +159,10 @@ export async function fireLights(params: LightParams, opts: FireOptions = {}): P
       params.effect === "custom" && params.customSteps?.length
         ? params.customSteps.reduce((sum, s) => sum + s.durationMs, 0)
         : params.durationMs;
-    setTimeout(async () => {
-      const freshDevices = await getEnabledDevices(opts.deviceIds);
-      await Promise.allSettled(
-        freshDevices.map((d) => returnToIdleForDevice(d, settings.idleColor, settings.idleBrightness))
+    // Reuse the devices list we already fetched — no extra DB round-trip
+    setTimeout(() => {
+      void Promise.allSettled(
+        devices.map((d) => returnToIdleForDevice(d, settings.idleColor, settings.idleBrightness))
       );
     }, effectDurationMs);
   }

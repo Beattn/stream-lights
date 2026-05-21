@@ -3,8 +3,9 @@ import { z } from "zod";
 export const VALID_EFFECTS = ["solid", "strobe", "pulse", "rainbow", "fade", "police", "custom"] as const;
 export const VALID_PLATFORMS = ["twitch", "youtube", "kick", "streamlabs", "streamelements"] as const;
 export const VALID_EVENT_TYPES = [
-  "follow", "subscribe", "bits", "donation", "raid", "host",
-  "ban", "timeout", "chat_message", "channel_point", "light_preview",
+  "follow", "subscribe", "subscribe_gift", "bits", "donation", "raid", "host",
+  "ban", "timeout", "chat_message", "chat_command", "channel_point",
+  "stream_live", "light_preview",
 ] as const;
 
 export const hexColorSchema = z
