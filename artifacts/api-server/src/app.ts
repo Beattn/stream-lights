@@ -1,7 +1,6 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
-import compression from "compression";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
@@ -62,7 +61,6 @@ app.use(
   })
 );
 
-app.use(compression());
 app.use(express.json({ limit: "50kb" }));
 app.use(express.urlencoded({ extended: true, limit: "50kb" }));
 
