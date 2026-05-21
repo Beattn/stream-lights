@@ -29,6 +29,7 @@
     "appId": "com.streamlights.agent",
     "productName": "Stream Lights Agent",
     "npmRebuild": false,
+    "asar": true,
     "win": {
       "target": "nsis"
     },
@@ -41,7 +42,14 @@
       "dist/**/*",
       "assets/**/*",
       "setup.html",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "!node_modules/**/{CHANGELOG.md,README.md,readme.md,readme,test,__tests__,tests,coverage,.nyc_output,example,examples,docs,doc,.github}/**/*",
+      "!node_modules/**/*.{map,ts,flow,coffee}",
+      "!node_modules/typescript/**/*",
+      "!node_modules/electron-builder/**/*",
+      "!node_modules/electron/**/*",
+      "!node_modules/@types/**/*",
+      "!node_modules/**/node_modules/electron/**/*"
     ],
     "extraMetadata": {
       "main": "dist/main.js"
