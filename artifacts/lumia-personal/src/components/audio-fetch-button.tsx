@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Download, Loader2, CheckCircle, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiUrl } from "@/lib/api";
@@ -52,6 +52,9 @@ export default function AudioFetchButton({ url, onFetched }: Props) {
       pollRef.current = null;
     }
   }
+
+  // Cleanup: stop polling if component unmounts mid-download (prevents memory leak)
+  useEffect(() => () => stopPolling(), []);
 
   async function pollJob(jobId: string) {
     if (Date.now() > deadlineRef.current) {

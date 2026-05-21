@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { applyLight, applyIdle, type Device, type LightParams } from "./drivers";
-import { audioPlayer } from "./audio";
+import { audioPlayer, killAllAudioProcesses } from "./audio";
 import { KickClient } from "./kick";
 import { TwitchClient } from "./twitch";
 import { startAudioJobProcessor, stopAudioJobProcessor } from "./audio-jobs";
@@ -55,6 +55,7 @@ interface Command {
   effect: string;
   enabled: boolean;
   cooldownSeconds: number;
+  usage_count?: number;
   audioUrl?: string | null;
   audioFile?: string | null;
   audioVolume?: number;
@@ -162,7 +163,6 @@ class StreamLightsAgent {
     try {
       this.supabase = createClient(supabaseUrl, supabaseKey, {
         auth: { persistSession: false },
-        realtime: { transport: WebSocket as unknown as typeof globalThis.WebSocket },
       });
       await this.loadConfig();
       this._running = true;
@@ -187,6 +187,7 @@ class StreamLightsAgent {
     this.twitchClient = null;
     stopAudioJobProcessor();
     stopOverlayServer();
+    killAllAudioProcesses();
     this.emitStatus();
   }
 
@@ -225,6 +226,9 @@ class StreamLightsAgent {
       if (platRes.data) this.platforms = platRes.data as Platform[];
       if (cmdRes.data) this.commands = cmdRes.data as Command[];
 
+      // Reconnect/disconnect platforms if their config changed since last poll
+      if (this._running) this.startPlatforms();
+
       this.errors = this.errors.filter((e) => !e.startsWith("Config load"));
       this.emitStatus();
     } catch (err) {
@@ -235,18 +239,29 @@ class StreamLightsAgent {
   }
 
   private startPlatforms(): void {
-    for (const p of this.platforms) {
-      if (!p.channelName || !p.eventsEnabled) continue;
+    const kickPlatform = this.platforms.find((p) => p.platform === "kick" && p.channelName && p.eventsEnabled);
+    const twitchPlatform = this.platforms.find((p) => p.platform === "twitch" && p.channelName && p.eventsEnabled);
 
-      if (p.platform === "kick" && !this.kickClient) {
-        this.kickClient = new KickClient(p.channelName, (event) => this.handleEvent(event, "kick"));
-        this.kickClient.start();
-      }
+    // Stop Kick if removed, disabled, or channel name changed
+    if (this.kickClient && (!kickPlatform || this.kickClient.channel !== kickPlatform.channelName)) {
+      this.kickClient.stop();
+      this.kickClient = null;
+    }
+    // Start Kick if newly enabled and not already running
+    if (kickPlatform && !this.kickClient) {
+      this.kickClient = new KickClient(kickPlatform.channelName!, (event) => this.handleEvent(event, "kick"));
+      this.kickClient.start();
+    }
 
-      if (p.platform === "twitch" && !this.twitchClient) {
-        this.twitchClient = new TwitchClient(p.channelName, p.accessToken ?? "", (event) => this.handleEvent(event, "twitch"));
-        this.twitchClient.start();
-      }
+    // Stop Twitch if removed, disabled, or channel/token changed
+    if (this.twitchClient && (!twitchPlatform || this.twitchClient.channel !== twitchPlatform.channelName)) {
+      this.twitchClient.stop();
+      this.twitchClient = null;
+    }
+    // Start Twitch if newly enabled and not already running
+    if (twitchPlatform && !this.twitchClient) {
+      this.twitchClient = new TwitchClient(twitchPlatform.channelName!, twitchPlatform.accessToken ?? "", (event) => this.handleEvent(event, "twitch"));
+      this.twitchClient.start();
     }
   }
 
@@ -332,7 +347,7 @@ class StreamLightsAgent {
       { returnToIdle: true, key: `cmd:${cmd}` }
     );
 
-    void this.supabase?.from("commands").update({ usage_count: command.id + 1 }).eq("id", command.id);
+    void this.supabase?.from("commands").update({ usage_count: (command.usage_count ?? 0) + 1 }).eq("id", command.id);
     void this.logActivity("chat_command", platform, username, message);
     return true;
   }
@@ -342,7 +357,7 @@ class StreamLightsAgent {
   }
 
   async testLight(color: string, brightness: number, effect: string, durationMs: number): Promise<void> {
-    if (!this.settings?.globalEnabled) return;
+    // Always fire test lights regardless of globalEnabled — this is a manual test action
     queue.enqueue({ color, brightness, effect, durationMs }, { returnToIdle: true, key: "test" });
   }
 

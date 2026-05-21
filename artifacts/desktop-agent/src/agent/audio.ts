@@ -1,10 +1,21 @@
-import { exec } from "child_process";
+import { exec, type ChildProcess } from "child_process";
 
 interface PlayOptions {
   url: string;
   volume?: number;
   startMs?: number;
   endMs?: number;
+}
+
+// Track all active child processes so we can kill them on app quit
+const activeProcesses = new Set<ChildProcess>();
+
+// Called by main process on before-quit to ensure no orphan processes linger
+export function killAllAudioProcesses(): void {
+  for (const proc of activeProcesses) {
+    try { proc.kill("SIGKILL"); } catch { /* already dead */ }
+  }
+  activeProcesses.clear();
 }
 
 class AudioPlayer {
@@ -15,7 +26,6 @@ class AudioPlayer {
     const clipDurationSec = hasClip ? (opts.endMs! - (opts.startMs ?? 0)) / 1000 : null;
 
     if (process.platform === "win32") {
-      // Seek to start position, play for clip duration (or 30s default), then stop
       const playDuration = clipDurationSec != null ? clipDurationSec : 30;
       const script = `
         $vol = ${volume} / 100.0;
@@ -31,11 +41,15 @@ class AudioPlayer {
       `.trim().replace(/\n\s+/g, " ");
 
       await new Promise<void>((resolve) => {
-        exec(
+        const proc = exec(
           `powershell -NoProfile -NonInteractive -Command "${script}"`,
           { timeout: Math.ceil(playDuration + 5) * 1000 },
-          () => resolve()
+          () => {
+            activeProcesses.delete(proc);
+            resolve();
+          }
         );
+        activeProcesses.add(proc);
       });
     }
   }

@@ -10,13 +10,22 @@ import fs from "fs";
 import { deflateSync } from "zlib";
 import { agent, type AgentStatus } from "./agent/index";
 
+// ─── Single instance lock ──────────────────────────────────────────────────────
+// This MUST be the first thing after imports — prevents multiple subprocesses
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  // Another instance is already running — quit immediately
+  app.quit();
+  process.exit(0);
+}
+
 // ─── Hardcoded Supabase connection ─────────────────────────────────────────────
 const SUPABASE_URL = "https://ylivjdmmmgotyctqbvaa.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlsaXZqZG1tbWdvdHljdHFidmFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMjAzMjEsImV4cCI6MjA5NDc5NjMyMX0.YlRRB5kGXXCm03YwOstZd3ZOfDpXAlqhi9SkssHaVBE";
 const DEFAULT_DASHBOARD_URL = "https://stream-lights.vercel.app";
 // ──────────────────────────────────────────────────────────────────────────────
 
-const CONFIG_PATH = path.join(app.getPath("userData"), "config.json");
+let CONFIG_PATH: string;
 
 interface Config {
   email: string;
@@ -65,8 +74,7 @@ function buildPNG(size: number, r: number, g: number, b: number): Buffer {
       const dist = Math.sqrt(dx * dx + dy * dy);
       const alpha = Math.max(0, Math.min(1, radius - dist + 1));
 
-      // Lightning bolt shape (normalised 0-1 coords within circle)
-      const nx = (x / size - 0.5) * 2.4;  // -1.2 to 1.2
+      const nx = (x / size - 0.5) * 2.4;
       const ny = (y / size - 0.5) * 2.4;
       const bolt =
         (ny < 0.1  && nx >= -0.55 && nx <= 0.1  && ny >= -1.1) ||
@@ -83,7 +91,7 @@ function buildPNG(size: number, r: number, g: number, b: number): Buffer {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(size, 0);
   ihdr.writeUInt32BE(size, 4);
-  ihdr[8] = 8; ihdr[9] = 6; // 8-bit RGBA
+  ihdr[8] = 8; ihdr[9] = 6;
 
   const raw: number[] = [];
   for (let y = 0; y < size; y++) {
@@ -106,15 +114,28 @@ const ICON_COLORS: Record<string, [number, number, number]> = {
   purple: [139, 92,  246],
 };
 
-function makeIcon(color: keyof typeof ICON_COLORS = "gray"): Electron.NativeImage {
-  const [r, g, b] = ICON_COLORS[color] ?? ICON_COLORS.gray;
-  return nativeImage.createFromBuffer(buildPNG(32, r, g, b));
+// ─── Pre-build ALL icons once at startup (no CPU cost on each status update) ──
+const iconCache = new Map<string, Electron.NativeImage>();
+
+function getIcon(color: keyof typeof ICON_COLORS = "gray"): Electron.NativeImage {
+  const key = String(color);
+  let icon = iconCache.get(key);
+  if (!icon) {
+    const [r, g, b] = ICON_COLORS[key] ?? ICON_COLORS.gray;
+    icon = nativeImage.createFromBuffer(buildPNG(32, r, g, b));
+    iconCache.set(key, icon);
+  }
+  return icon;
 }
 
-// App icon for windows (larger, purple)
 function makeAppIcon(): Electron.NativeImage {
-  const [r, g, b] = ICON_COLORS.purple;
-  return nativeImage.createFromBuffer(buildPNG(256, r, g, b));
+  let icon = iconCache.get("app-purple");
+  if (!icon) {
+    const [r, g, b] = ICON_COLORS.purple;
+    icon = nativeImage.createFromBuffer(buildPNG(256, r, g, b));
+    iconCache.set("app-purple", icon);
+  }
+  return icon;
 }
 
 let tray: Tray | null = null;
@@ -122,6 +143,8 @@ let setupWindow: BrowserWindow | null = null;
 let dashboardWindow: BrowserWindow | null = null;
 let currentStatus: AgentStatus | null = null;
 let config: Config | null = null;
+let lastTrayColor: string | null = null;
+
 const appIcon = (() => { try { return makeAppIcon(); } catch { return undefined; } })();
 
 // ─── Dashboard window ─────────────────────────────────────────────────────────
@@ -213,24 +236,33 @@ function updateTray(status?: AgentStatus): void {
     else color = "yellow";
   }
 
-  tray.setImage(makeIcon(color));
+  // Only update the icon image when color actually changes — avoids redundant GPU work
+  if (color !== lastTrayColor) {
+    tray.setImage(getIcon(color));
+    lastTrayColor = color;
+  }
+
   tray.setToolTip(`Stream Lights${s?.kickConnected ? " — Kick ✓" : ""}${s?.twitchConnected ? " — Twitch ✓" : ""}`);
   tray.setContextMenu(buildTrayMenu());
 }
 
 // ─── Setup window ─────────────────────────────────────────────────────────────
 function openSetupWindow(): void {
+  // If already open, just focus it — never create a second window
   if (setupWindow && !setupWindow.isDestroyed()) {
+    setupWindow.show();
     setupWindow.focus();
     return;
   }
 
   setupWindow = new BrowserWindow({
     width: 460,
-    height: 600,
+    height: 650,
     minWidth: 400,
-    minHeight: 520,
-    resizable: true,
+    minHeight: 540,
+    resizable: false,
+    frame: false,
+    hasShadow: true,
     title: "Stream Lights — Settings",
     icon: appIcon,
     webPreferences: {
@@ -255,16 +287,44 @@ ipcMain.on("get-config", (event) => {
   const s = currentStatus;
   event.returnValue = config
     ? {
-        email: config.email,
-        dashboardUrl: config.dashboardUrl,
-        isConnected: s?.running ?? false,
-        kickConnected: s?.kickConnected ?? false,
+        email:          config.email,
+        dashboardUrl:   config.dashboardUrl,
+        isConnected:    s?.running       ?? false,
+        kickConnected:  s?.kickConnected   ?? false,
+        twitchConnected:s?.twitchConnected ?? false,
+        devicesCount:   s?.devicesCount   ?? 0,
+        triggersCount:  s?.triggersCount  ?? 0,
       }
-    : { isConnected: false, kickConnected: false };
+    : { isConnected: false, kickConnected: false, twitchConnected: false, devicesCount: 0, triggersCount: 0 };
+});
+
+ipcMain.handle("test-light", async (_event, params: { color: string; brightness: number; effect: string; durationMs: number }) => {
+  try {
+    await agent.testLight(params.color, params.brightness, params.effect, params.durationMs);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
 });
 
 ipcMain.on("close-setup", () => {
   if (setupWindow && !setupWindow.isDestroyed()) setupWindow.close();
+});
+
+ipcMain.on("minimize-window", () => {
+  if (setupWindow && !setupWindow.isDestroyed()) setupWindow.minimize();
+});
+
+ipcMain.on("maximize-window", () => {
+  if (setupWindow && !setupWindow.isDestroyed()) {
+    setupWindow.isMaximized() ? setupWindow.unmaximize() : setupWindow.maximize();
+  }
+});
+
+// Opens the dashboard from the Settings window and closes Settings
+ipcMain.on("open-dashboard", () => {
+  if (setupWindow && !setupWindow.isDestroyed()) setupWindow.close();
+  openDashboardWindow();
 });
 
 ipcMain.handle("save-config", async (_event, newConfig: Config) => {
@@ -333,11 +393,17 @@ async function startWithSavedConfig(cfg: Config): Promise<string | null> {
 
 // ─── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
+  // Defer CONFIG_PATH until after app is ready
+  CONFIG_PATH = path.join(app.getPath("userData"), "config.json");
+
   app.setAppUserModelId("Stream Lights");
 
   if (process.platform === "darwin") app.dock.hide();
 
-  tray = new Tray(makeIcon("gray"));
+  // Pre-build all icons now so they're ready instantly
+  for (const color of Object.keys(ICON_COLORS)) getIcon(color);
+
+  tray = new Tray(getIcon("gray"));
   tray.setToolTip("Stream Lights — starting...");
   tray.setContextMenu(buildTrayMenu());
 
@@ -362,6 +428,32 @@ app.whenReady().then(async () => {
   }
 });
 
+// ─── Second-instance handler ───────────────────────────────────────────────────
+// When Windows tries to launch a second copy of the app, focus the existing one
+app.on("second-instance", () => {
+  if (setupWindow && !setupWindow.isDestroyed()) {
+    if (setupWindow.isMinimized()) setupWindow.restore();
+    setupWindow.show();
+    setupWindow.focus();
+  } else if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+    if (dashboardWindow.isMinimized()) dashboardWindow.restore();
+    dashboardWindow.show();
+    dashboardWindow.focus();
+  }
+});
+
 app.on("window-all-closed", () => { /* keep running in tray */ });
-app.on("before-quit", () => agent.stop());
+
+// Properly await agent cleanup before the process exits
+// Without this, timers and WebSockets can linger briefly after quit
+let isQuitting = false;
+app.on("before-quit", (e) => {
+  if (isQuitting) return;
+  isQuitting = true;
+  e.preventDefault();
+  agent.stop()
+    .catch(() => { /* ignore errors during shutdown */ })
+    .finally(() => app.exit(0));
+});
+
 app.on("activate", () => openDashboardWindow());

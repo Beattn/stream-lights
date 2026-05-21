@@ -9,6 +9,7 @@ export class TwitchClient {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private pingTimer: NodeJS.Timeout | null = null;
   private shouldRun = false;
+  private reconnectAttempts = 0;
 
   constructor(
     private channelName: string,
@@ -30,6 +31,7 @@ export class TwitchClient {
     this.ws = new WebSocket("wss://irc-ws.chat.twitch.tv:443");
 
     this.ws.on("open", () => {
+      this.reconnectAttempts = 0;
       this.ws!.send("CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership");
       if (this.oauthToken) this.ws!.send(`PASS oauth:${this.oauthToken.replace(/^oauth:/, "")}`);
       this.ws!.send(`NICK ${this.botUsername}`);
@@ -124,8 +126,14 @@ export class TwitchClient {
 
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return;
-    this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; this.connect(); }, 10_000);
+    // Exponential backoff: 2s, 4s, 8s, 16s, 32s, 60s max
+    const delay = Math.min(2_000 * Math.pow(2, this.reconnectAttempts), 60_000);
+    this.reconnectAttempts = Math.min(this.reconnectAttempts + 1, 5);
+    console.log(`[Twitch] Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts})`);
+    this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; this.connect(); }, delay);
   }
+
+  get channel(): string { return this.channelName; }
 
   stop(): void {
     this.shouldRun = false;

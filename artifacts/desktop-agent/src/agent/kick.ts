@@ -28,6 +28,7 @@ export class KickClient {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private pingTimer: NodeJS.Timeout | null = null;
   private shouldRun = false;
+  private reconnectAttempts = 0;
 
   constructor(private channelName: string, private handler: Handler) {}
 
@@ -47,6 +48,7 @@ export class KickClient {
 
     this.ws.on("open", () => {
       console.log("[Kick] WebSocket open");
+      this.reconnectAttempts = 0;
       this.schedulePing();
     });
 
@@ -143,8 +145,14 @@ export class KickClient {
 
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return;
-    this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; this.connect(); }, 10_000);
+    // Exponential backoff: 2s, 4s, 8s, 16s, 32s, 60s max
+    const delay = Math.min(2_000 * Math.pow(2, this.reconnectAttempts), 60_000);
+    this.reconnectAttempts = Math.min(this.reconnectAttempts + 1, 5);
+    console.log(`[Kick] Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts})`);
+    this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; this.connect(); }, delay);
   }
+
+  get channel(): string { return this.channelName; }
 
   stop(): void {
     this.shouldRun = false;
