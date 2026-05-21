@@ -1,13 +1,38 @@
 import { Router } from "express";
+import type { Request } from "express";
 import { db } from "@workspace/db";
 import { triggersTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { alertQueue } from "../lib/drivers/alert-queue";
 import { logger } from "../lib/logger";
 import { requireAuth } from "../middlewares/auth";
+import { VALID_EVENT_TYPES } from "../lib/security";
+import { z } from "zod";
 import crypto from "crypto";
 
 const router = Router();
+
+function verifyWebhookSecret(req: Request, platform: string): boolean {
+  if (platform === "twitch") return true;
+
+  const secret = process.env.WEBHOOK_SECRET;
+  if (!secret) return true;
+
+  const provided =
+    (req.headers["x-webhook-secret"] as string | undefined) ??
+    (req.query["secret"] as string | undefined);
+
+  if (!provided) return false;
+
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(secret, "utf8"),
+      Buffer.from(provided, "utf8")
+    );
+  } catch {
+    return false;
+  }
+}
 
 function parsePlatformEvent(platform: string, body: Record<string, unknown>): {
   eventType: string;
@@ -152,6 +177,10 @@ router.post("/webhooks/:platform", async (req, res) => {
         return res.status(403).json({ error: "Invalid signature" });
       }
     }
+  } else {
+    if (!verifyWebhookSecret(req as never, platform)) {
+      return res.status(403).json({ error: "Invalid webhook secret" });
+    }
   }
 
   const parsed = parsePlatformEvent(platform, req.body as Record<string, unknown>);
@@ -164,14 +193,27 @@ router.post("/webhooks/:platform", async (req, res) => {
   res.json({ ok: true, platform, eventType: parsed.eventType, triggersMatched: fired });
 });
 
+const testWebhookSchema = z.object({
+  eventType: z.enum(VALID_EVENT_TYPES).default("follow"),
+  username: z.string().min(1).max(100).default("testuser"),
+  message: z.string().max(500).default("Test event"),
+  amount: z.number().optional(),
+});
+
 router.post("/webhooks/:platform/test", requireAuth, async (req, res) => {
   const platform = req.params.platform;
-  const { eventType = "follow", username = "testuser", message = "Test event", amount } = req.body as Record<string, unknown>;
+  const validPlatforms = ["twitch", "youtube", "kick", "streamlabs", "streamelements"];
+  if (!validPlatforms.includes(platform)) {
+    return res.status(400).json({ error: "Unknown platform" });
+  }
 
-  const fired = await matchAndFireTriggers(
-    eventType as string, platform, username as string, message as string,
-    typeof amount === "number" ? amount : undefined
-  );
+  const parsed = testWebhookSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid test payload", details: parsed.error.flatten() });
+  }
+
+  const { eventType, username, message, amount } = parsed.data;
+  const fired = await matchAndFireTriggers(eventType, platform, username, message, amount);
 
   res.json({ ok: true, platform, eventType, triggersMatched: fired });
 });
